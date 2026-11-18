@@ -14,7 +14,8 @@
 #
 # **Models**: `image_only` (MLP on frozen ViT CLS + mean-pooled patch tokens), `text_only` (fine-tuned text encoder,
 # CLS), `concat` (text CLS + projected ViT CLS), `cross_attn` (text tokens attend over the 197 ViT tokens, gated
-# residual fusion). The text encoder and learning rate are fixed to the choice made in v2 by validation macro-F1.
+# residual fusion). The text encoder and learning rate are chosen per dataset on validation macro-F1 (Stage 4a,
+# base vs. large encoders). Results are also reported for a seed ensemble (averaged probabilities).
 #
 # **Protocol**: best epoch per run by validation macro-F1; test evaluated once at that epoch; 3 seeds, mean ± std.
 # Metrics: accuracy, macro precision / recall / F1, and per-class P / R / F1. Joins use `sample_id`, never row position.
@@ -47,9 +48,20 @@ CONFIG = {
     # entity-tag (BIO, 'IMGID:' blocks) files used for aspect types: all splits of the multimodal NER release of the
     # same tweets (Kaggle dataset mocmeo/data-twitter-2015-2017); matched to ABSA rows by image id + aspect tokens
     "ner_files": ["train.txt", "valid.txt", "dev.txt", "test.txt"],
-    # chosen in v2 by validation macro-F1 (text_only, masked, seed 42) among 4 encoders x 2 learning rates
-    "encoder": os.environ.get("IMABSA_ENCODER", "cardiffnlp/twitter-roberta-base-sentiment-latest"),
-    "lr_text": 3e-5,
+    # Stage 4a (validation only): text_only / sentiment / masked / seed 42 for every (encoder, lr) below; the best
+    # per dataset by validation macro-F1 is used for all final runs. The v2/v3 choice is kept as the reference.
+    "encoder_grid": json.loads(os.environ["IMABSA_ENCODER_GRID"]) if "IMABSA_ENCODER_GRID" in os.environ else {
+        "cardiffnlp/twitter-roberta-base-sentiment-latest": [3e-5],
+        "roberta-large": [1e-5, 2e-5],
+        "vinai/bertweet-large": [1e-5, 2e-5],
+        "cardiffnlp/twitter-roberta-large-2022-154m": [1e-5, 2e-5],
+    },
+    "tune_seed": 42,
+    # Export mode (to obtain the trained models themselves): if IMABSA_FIXED_ENCODER is set, tuning is skipped and that
+    # {dataset: [encoder, lr]} is used; if IMABSA_EXPORT_RUNS is set (list of [task, dataset, setting, model, seed]),
+    # only those runs are trained and their best-epoch weights are saved to <output_root>/models/.
+    "fixed_encoder": json.loads(os.environ.get("IMABSA_FIXED_ENCODER", "{}")),
+    "export_runs": json.loads(os.environ.get("IMABSA_EXPORT_RUNS", "[]")),
     "lr_head": 1e-4,
     "lr_image_only": 1e-3,
     "experiments": [
@@ -70,7 +82,8 @@ CONFIG = {
 }
 SENTIMENT_CLASSES = ["0", "1", "2"]   # raw labels; no names asserted
 if SMOKE:
-    CONFIG.update(seeds=[42], epochs=1, smoke_max_rows=192)
+    CONFIG.update(seeds=[42, 43], epochs=1, smoke_max_rows=192,
+                  encoder_grid={k: v[:1] for k, v in CONFIG["encoder_grid"].items()})
 
 OUT = Path(CONFIG["output_root"])
 (OUT / "predictions").mkdir(parents=True, exist_ok=True)
@@ -403,20 +416,28 @@ def evaluate(model, loader, n_classes):
             "probs": probs, "preds": preds, "labels": labels, "idx": idxs}
 
 
-def run_one(task, ds, setting, kind, seed):
+def save_model(model, save_dir, meta):
+    save_dir.mkdir(parents=True, exist_ok=True)
+    torch.save({k: v.detach().cpu().half() if v.is_floating_point() else v.detach().cpu()
+                for k, v in model.state_dict().items()}, save_dir / "model_fp16.pt")
+    with open(save_dir / "model_info.json", "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2, default=str)
+
+
+def run_one(task, ds, setting, kind, seed, encoder, lr_text, eval_test=True, save_dir=None):
     set_seed(seed)
     classes = task_classes(task, ds)
-    tok = get_tokenizer(CONFIG["encoder"])
+    tok = get_tokenizer(encoder)
     sets = {s: SampleSet(ds, s, setting, tok, task) for s in CONFIG["split_files"]}
     g = torch.Generator().manual_seed(seed)
     loaders = {s: torch.utils.data.DataLoader(sets[s], batch_size=CONFIG["batch_size"], shuffle=(s == "train"),
                                               generator=g if s == "train" else None, collate_fn=make_collate(sets[s]))
                for s in sets}
-    model = FusionModel(kind, CONFIG["encoder"], len(classes)).to(DEVICE)
+    model = FusionModel(kind, encoder, len(classes)).to(DEVICE)
     no_decay = ("bias", "LayerNorm.weight", "norm.weight")
     head_lr = CONFIG["lr_image_only"] if kind == "image_only" else CONFIG["lr_head"]
     groups = []
-    for is_text, lr in ((True, CONFIG["lr_text"]), (False, head_lr)):
+    for is_text, lr in ((True, lr_text), (False, head_lr)):
         named = [(n, p) for n, p in model.named_parameters() if n.startswith("bert.") == is_text]
         for decay in (True, False):
             ps = [p for n, p in named if n.endswith(no_decay) != decay]
@@ -447,6 +468,14 @@ def run_one(task, ds, setting, kind, seed):
         if best is None or val["macro_f1"] > best["val_macro_f1"]:
             best = history[-1]
             best_state = {k: v.detach().to("cpu", copy=True) for k, v in model.state_dict().items()}
+    if not eval_test:  # tuning: never touch the test split
+        res = {"task": task, "dataset": ds, "setting": setting, "model": kind, "seed": seed, "encoder": encoder,
+               "lr_text": lr_text, "best_epoch": best["epoch"], "val_acc": best["val_acc"],
+               "val_macro_f1": best["val_macro_f1"], "minutes": (time.time() - t0) / 60}
+        del model, opt, best_state
+        if DEVICE.type == "cuda":
+            torch.cuda.empty_cache()
+        return res, history
     model.load_state_dict(best_state)
     test = evaluate(model, loaders["test"], len(classes))
     tdf = sets["test"].df.iloc[test["idx"]]
@@ -455,25 +484,68 @@ def run_one(task, ds, setting, kind, seed):
                   **{f"p_{c}": test["probs"][:, j] for j, c in enumerate(classes)}}
                  ).to_csv(OUT / "predictions" / f"{task}_{ds}_{setting}_{kind}_seed{seed}_test.csv", index=False)
     result = {"task": task, "dataset": ds, "setting": setting, "model": kind, "seed": seed,
-              "encoder": None if kind == "image_only" else CONFIG["encoder"], "classes": classes,
+              "encoder": None if kind == "image_only" else encoder,
+              "lr_text": None if kind == "image_only" else lr_text, "classes": classes,
               "best_epoch": best["epoch"], "val_acc": best["val_acc"], "val_macro_f1": best["val_macro_f1"],
               "test_n": len(tdf), "test_acc": test["acc"], "test_macro_precision": test["macro_precision"],
               "test_macro_recall": test["macro_recall"], "test_macro_f1": test["macro_f1"],
               "test_per_class": test["per_class"], "test_confusion": test["confusion"],
               "minutes": (time.time() - t0) / 60}
+    if save_dir is not None:
+        save_model(model, save_dir, {
+            **{k: v for k, v in result.items() if k not in ("test_per_class", "test_confusion")},
+            "vit_model": VIT_META["model"]["model_name"], "max_len": CONFIG["max_len"], "dropout": CONFIG["dropout"],
+            "fusion_heads": CONFIG["fusion_heads"], "n_image_tokens": int(IMG_TOK[(ds, "test")].shape[1]),
+            "input_format": "masked: aspect replaced by the tokenizer mask token; explicit: (sentence with aspect, aspect)",
+            "image_features": "frozen ViT last layer: CLS (concat) or all tokens (cross_attn); ViTImageProcessor defaults",
+            "test_per_class": result["test_per_class"], "test_confusion": result["test_confusion"],
+            "source": "02_train_fusion.py export mode"})
     del model, opt, best_state
     if DEVICE.type == "cuda":
         torch.cuda.empty_cache()
     return result, history
 
 # %%
-# ==== Stage 4: run all experiments (results saved after every run) ====
-RESULTS, HISTORY = [], []
-plan = [(task, ds, st, m, s) for task, st, models in CONFIG["experiments"] for ds in CONFIG["datasets"]
-        for m in models for s in CONFIG["seeds"]]
-logger.info("%d runs planned | encoder=%s", len(plan), CONFIG["encoder"])
+# ==== Stage 4a: choose text encoder + learning rate per dataset on VALIDATION only ====
+TUNING, HISTORY = [], []
+tune_plan = [] if CONFIG["fixed_encoder"] else \
+    [(ds, enc, lr) for ds in CONFIG["datasets"] for enc, lrs in CONFIG["encoder_grid"].items() for lr in lrs]
+logger.info("Tuning: %d runs (text_only, sentiment, masked, seed %d, validation only)", len(tune_plan), CONFIG["tune_seed"])
+for i, (ds, enc, lr) in enumerate(tune_plan, 1):
+    try:
+        res, hist = run_one("sentiment", ds, "masked", "text_only", CONFIG["tune_seed"], enc, lr, eval_test=False)
+    except Exception as e:  # recorded and skipped, never hidden
+        logger.info("[tune %d/%d] %s %s lr=%g FAILED: %s", i, len(tune_plan), ds, enc, lr, repr(e)[:300])
+        TUNING.append({"dataset": ds, "encoder": enc, "lr_text": lr, "error": repr(e)[:300]})
+        if DEVICE.type == "cuda":
+            torch.cuda.empty_cache()
+        continue
+    TUNING.append(res); HISTORY += hist
+    pd.DataFrame(TUNING).to_csv(OUT / "tuning_results.csv", index=False)
+    logger.info("[tune %d/%d] %s %-45s lr=%g | ep=%d VAL acc=%.4f F1=%.4f | %.1f min", i, len(tune_plan), ds, enc, lr,
+                res["best_epoch"], res["val_acc"], res["val_macro_f1"], res["minutes"])
+tune_df = pd.DataFrame(TUNING)
+tune_df.to_csv(OUT / "tuning_results.csv", index=False)
+if CONFIG["fixed_encoder"]:
+    CHOSEN = {ds: {"encoder": e, "lr_text": lr} for ds, (e, lr) in CONFIG["fixed_encoder"].items()}
+else:
+    ok_tune = tune_df.dropna(subset=["val_macro_f1"])
+    CHOSEN = {ds: ok_tune[ok_tune.dataset == ds].sort_values("val_macro_f1", ascending=False).iloc[0][["encoder", "lr_text"]].to_dict()
+              for ds in CONFIG["datasets"]}
+for ds, c in CHOSEN.items():
+    logger.info("CHOSEN for %s: encoder=%s lr_text=%g (by validation macro-F1)", ds, c["encoder"], c["lr_text"])
+
+# %%
+# ==== Stage 4b: final experiments with the chosen encoder (results saved after every run) ====
+RESULTS = []
+EXPORT = bool(CONFIG["export_runs"])
+plan = [tuple(r) for r in CONFIG["export_runs"]] if EXPORT else \
+    [(task, ds, st, m, s) for task, st, models in CONFIG["experiments"] for ds in CONFIG["datasets"]
+     for m in models for s in CONFIG["seeds"]]
+logger.info("Final: %d runs planned%s", len(plan), " (EXPORT: weights will be saved)" if EXPORT else "")
 for i, (task, ds, st, m, s) in enumerate(plan, 1):
-    res, hist = run_one(task, ds, st, m, s)
+    save_dir = OUT / "models" / f"{task}_{ds}_{st}_{m}_seed{s}" if EXPORT else None
+    res, hist = run_one(task, ds, st, m, s, CHOSEN[ds]["encoder"], float(CHOSEN[ds]["lr_text"]), save_dir=save_dir)
     RESULTS.append(res); HISTORY += hist
     pd.DataFrame(RESULTS).to_csv(OUT / "results_runs.csv", index=False)
     pd.DataFrame(HISTORY).to_csv(OUT / "history.csv", index=False)
@@ -503,21 +575,45 @@ for (task, ds, st, m), g in runs.groupby(["task", "dataset", "setting", "model"]
                      "f1_mean": pcs[:, j].mean(), "support": g.test_per_class.iloc[0]["support"][j]})
 pd.DataFrame(rows).to_csv(OUT / "results_per_class.csv", index=False)
 
+# seed ensemble: average the predicted class probabilities of all seeds per (task, dataset, setting, model)
+ENS = []
+for (task, ds, st, m), g in runs.groupby(["task", "dataset", "setting", "model"], sort=False):
+    classes = g.classes.iloc[0]
+    preds = [pd.read_csv(OUT / "predictions" / f"{task}_{ds}_{st}_{m}_seed{s}_test.csv", dtype={"label": str, "pred": str})
+             .set_index("sample_id") for s in g.seed]
+    base = preds[0]
+    assert all(p.index.equals(base.index) and (p.label == base.label).all() for p in preds), "prediction files misaligned"
+    probs = np.mean([p[[f"p_{c}" for c in classes]].values for p in preds], axis=0)
+    y = base.label.map({c: i for i, c in enumerate(classes)}).values
+    yhat = probs.argmax(1)
+    pm, rm, fm, _ = precision_recall_fscore_support(y, yhat, labels=list(range(len(classes))), average="macro", zero_division=0)
+    ENS.append({"task": task, "dataset": ds, "setting": st, "model": m, "n_seeds": len(preds),
+                "ens_acc": accuracy_score(y, yhat), "ens_macro_precision": pm, "ens_macro_recall": rm, "ens_macro_f1": fm})
+ens_df = pd.DataFrame(ENS)
+ens_df.to_csv(OUT / "results_ensemble.csv", index=False)
+
 pd.set_option("display.width", 250)
 show = agg[["task", "dataset", "setting", "model", "n_seeds"]].copy()
 for m in metrics:
     show[m.replace("test_", "")] = [f"{100 * a:.2f} ± {100 * (0 if np.isnan(b) else b):.2f}"
                                     for a, b in zip(agg[f"{m}_mean"], agg[f"{m}_std"])]
 show["majority"] = agg.majority_class_test_acc
+print("Tuning (validation macro-F1, text_only / sentiment / masked):")
+if "val_macro_f1" in tune_df:
+    print(tune_df.pivot_table(index=["dataset", "encoder"], columns="lr_text", values="val_macro_f1").round(4).to_string())
+print("\nChosen:", json.dumps(CHOSEN, default=str), "\n")
 print(("SMOKE TEST — numbers are NOT meaningful\n" if SMOKE else "") + show.to_string(index=False))
+print("\nSeed ensemble (averaged probabilities):")
+print(ens_df.assign(**{c: (100 * ens_df[c]).round(2) for c in ens_df.columns if c.startswith("ens_")}).to_string(index=False))
 
 meta = {"created_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"), "smoke_test": SMOKE,
         "config": CONFIG, "environment": ENV, "vit_outputs": str(VIT_DIR), "vit_model": VIT_META["model"],
         "annotation_dirs": {k: str(v) for k, v in ANN_DIR.items()}, "data_summary": summary,
-        "aspect_type_alignment": ALIGN, "aspect_classes": ASPECT_CLASSES,
-        "encoder_note": "encoder and lr chosen in v2 by validation macro-F1 (text_only, masked, seed 42) among "
-                        "bert-base-uncased, roberta-base, vinai/bertweet-base, cardiffnlp/twitter-roberta-base-sentiment-latest "
-                        "x lr {2e-5, 3e-5}; the chosen encoder was already fine-tuned on tweet sentiment (TweetEval)",
+        "aspect_type_alignment": ALIGN, "aspect_classes": ASPECT_CLASSES, "chosen_per_dataset": CHOSEN,
+        "tuning": TUNING,
+        "encoder_note": "encoder and lr chosen per dataset by validation macro-F1 (text_only, sentiment, masked, "
+                        "seed 42) over CONFIG['encoder_grid']; test split never used for this choice",
+        "ensemble_note": "results_ensemble.csv averages the predicted probabilities of all seeds (no extra training)",
         "label_note": "sentiment labels are the raw 0/1/2 values of the source TSV; no sentiment names are asserted",
         "masking_note": "masked setting replaces $T$ with the tokenizer mask token; synthetic, not natural implicitness",
         "aspect_type_note": "aspect entity types from BIO tags in the dataset .txt files, aligned by image id + aspect "

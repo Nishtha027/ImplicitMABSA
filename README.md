@@ -21,22 +21,26 @@ the training notebook runs a short smoke test; a committed run ("Save & Run All"
 * Entity tags for aspect types: Kaggle dataset `mocmeo/data-twitter-2015-2017` (multimodal NER release of the same
   tweets), aligned to each ABSA row by image id + aspect tokens.
 
-## Live demo (try your own tweet + image)
+## Testing the trained models on your own input
 
-`src/03_train_demo_model.py` trains one text+image model (concat fusion) with two heads — sentiment toward the
-hidden aspect and the aspect's entity type — on the Twitter-2015 + 2017 train splits, and saves
-`demo_model/demo_model_fp16.pt` + `demo_model/demo_config.json` (Kaggle notebook "ImplicitMABSA Demo Model").
-Copy that `demo_model/` folder next to this README, then:
+The research runs store metrics and predictions, not weights. To obtain the trained models themselves,
+`02_train_fusion.py` has an export mode (`IMABSA_FIXED_ENCODER`, `IMABSA_EXPORT_RUNS`): it re-trains the listed
+configurations with the same code, data, encoder, hyperparameters and seed, and saves each model to
+`models/<task>_<dataset>_<setting>_<model>_seed<k>/` (`model_fp16.pt` + `model_info.json` with that model's own test
+metrics). `notebooks/export_models.ipynb` exports the best fusion configuration per dataset (seed 42) for masked
+aspect sentiment and for aspect-type identification (Kaggle notebook "ImplicitMABSA Model Export").
+
+With the exported `models/` folder next to this README:
 
 ```
-pip install -r demo/requirements.txt
-python demo/app.py --model-dir demo_model
+pip install -r app/requirements.txt
+python app/test_model.py --models-dir models
 ```
 
-Open the printed local address (default http://127.0.0.1:7860), type a tweet, optionally the aspect, upload an image.
-If the aspect appears in the tweet it is masked before prediction; if it does not, the tweet is used as is.
-Runs on CPU (first start downloads the text encoder and ViT from Hugging Face). `--share` additionally creates a
-temporary public link. The demo model is for demonstration; reported results come from `src/02_train_fusion.py`.
+Open http://127.0.0.1:7860, choose the dataset the models were trained on, type a tweet, optionally the aspect, and
+upload an image. If the aspect appears in the tweet it is masked before prediction (the masked setting the models were
+trained on); otherwise the tweet is used as is. Runs on CPU. Re-training a seed on GPU reproduces the reported run
+closely but not bit-for-bit; each exported model reports its own test accuracy.
 
 Sentiment labels in the source files: 0 = negative, 1 = neutral, 2 = positive (verified against the 4-line copies of
 the same data, which use −1/0/1, on all 11,314 matched rows).
