@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+# data and large feature files are not versioned (see README)
+data/
+*.npy
+*.zip
