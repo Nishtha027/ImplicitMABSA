@@ -21,6 +21,26 @@ the training notebook runs a short smoke test; a committed run ("Save & Run All"
 * Entity tags for aspect types: Kaggle dataset `mocmeo/data-twitter-2015-2017` (multimodal NER release of the same
   tweets), aligned to each ABSA row by image id + aspect tokens.
 
+## Live demo (try your own tweet + image)
+
+`src/03_train_demo_model.py` trains one text+image model (concat fusion) with two heads — sentiment toward the
+hidden aspect and the aspect's entity type — on the Twitter-2015 + 2017 train splits, and saves
+`demo_model/demo_model_fp16.pt` + `demo_model/demo_config.json` (Kaggle notebook "ImplicitMABSA Demo Model").
+Copy that `demo_model/` folder next to this README, then:
+
+```
+pip install -r demo/requirements.txt
+python demo/app.py --model-dir demo_model
+```
+
+Open the printed local address (default http://127.0.0.1:7860), type a tweet, optionally the aspect, upload an image.
+If the aspect appears in the tweet it is masked before prediction; if it does not, the tweet is used as is.
+Runs on CPU (first start downloads the text encoder and ViT from Hugging Face). `--share` additionally creates a
+temporary public link. The demo model is for demonstration; reported results come from `src/02_train_fusion.py`.
+
+Sentiment labels in the source files: 0 = negative, 1 = neutral, 2 = positive (verified against the 4-line copies of
+the same data, which use −1/0/1, on all 11,314 matched rows).
+
 ## Tasks and settings
 * **Aspect sentiment** (3 classes, raw labels 0/1/2 as in the source files)
   * `masked`: the aspect term is replaced by the mask token and not given to the model (synthetic implicitness).
