@@ -1,4 +1,4 @@
-# ImplicitMABSA: Multimodal Implicit Aspect-Based Sentiment Analysis Using Text and Images
+# ImplicitMABSA: Multimodal Implicit Aspect-Based Sentiment Analysis Using Texts and Images
 
 Code for a study of whether combining tweet text with its image helps (1) predict the sentiment toward an aspect
 that is **not stated** in the text, and (2) identify **what kind of aspect** it is, on the Twitter-2015 and
