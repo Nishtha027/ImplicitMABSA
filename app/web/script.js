@@ -1,8 +1,9 @@
 /* ImplicitMABSA — web UI
  * Talks to the local Python server at POST /api/predict (FormData: dataset, tweet, aspect, image).
- * Set USE_MOCK = true to try the page without the server; keep it false in the repository.
+ * The mock is off: the page calls the real API. To try it without the server, open the page with ?mock
+ * (for example http://127.0.0.1:5173/?mock) and it returns the sample response instead.
  */
-const USE_MOCK = false;
+const USE_MOCK = new URLSearchParams(location.search).has("mock");
 
 const MOCK_RESPONSE = {
   sentiment: { negative: 0.05, neutral: 0.15, positive: 0.80 },
@@ -16,62 +17,204 @@ const MOCK_RESPONSE = {
 };
 
 const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const pct = (v) => `${Math.round(v * 100)}%`;
 
-/* ------------------------------------------------------------------ */
-/* Ambient field: a quiet grid of patches that light up near the cursor */
-/* ------------------------------------------------------------------ */
-(function field() {
-  const canvas = $("#field");
-  if (!canvas || reduceMotion) return;
-  const ctx = canvas.getContext("2d");
-  const GAP = 30, SIZE = 3, RADIUS = 170;
-  let w = 0, h = 0, dpr = 1, mx = -9999, my = -9999, tx = -9999, ty = -9999, raf = 0, energy = 0;
+/** Replay a one-shot CSS animation class. */
+function replay(el, cls) {
+  if (!el || reduceMotion) return;
+  el.classList.remove(cls);
+  void el.offsetWidth;
+  el.classList.add(cls);
+  el.addEventListener("animationend", () => el.classList.remove(cls), { once: true });
+}
 
-  function resize() {
-    dpr = Math.min(window.devicePixelRatio || 1, 2);
-    w = window.innerWidth; h = window.innerHeight;
-    canvas.width = w * dpr; canvas.height = h * dpr;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    draw();
+/* ------------------------------------------------------------------ */
+/* Pixel art, 14 x 14: one character per ViT patch                     */
+/* ------------------------------------------------------------------ */
+const PALETTE = {
+  B: "#E9A23B", b: "#C9801E", s: "#FFF2D0", L: "#3FA34D", C: "#F7C948", M: "#6B3A26", T: "#E5484D",
+  S: "#BFD8FF", W: "#FFFFFF", K: "#20233A", G: "#4CAF50", g: "#3A9142", E: "#6B4E3D", Y: "#FFD166",
+};
+const EXAMPLES = [
+  {
+    tweet: "Dinner at Joe's Diner tonight. Absolutely delicious!", aspect: "Joe's Diner", dataset: "twitter2015", file: "joes-diner.png",
+    art: ["..............", ".....BBBB.....", "...BBBsBBBB...", "..BBsBBBBBsB..", ".BBBBBBsBBBBB.", ".BBsBBBBBBsBB.", ".bbbbbbbbbbbb.",
+          "LLLLLLLLLLLLLL", ".CCCCCCCCCCCC.", ".MMMMMMMMMMMM.", ".MMMMMMMMMMMM.", ".TTTTTTTTTTTT.", ".bbbbbbbbbbbb.", "..BBBBBBBBBB.."],
+  },
+  {
+    tweet: "What a performance from Arsenal tonight, the fans were unreal!", aspect: "Arsenal", dataset: "twitter2017", file: "arsenal.png",
+    art: ["SSSSSSSSSSSSSS", "SSSSSWWWWSSSSS", "SSSWWWKKWWWSSS", "SSWWWKKKKWWWSS", "SSWKWWKKWWKWSS", "SWKKWWWWWWKKWS", "SWKWWWWWWWWKWS",
+          "SWWWWKKKKWWWWS", "SSWWKKKKKKWWSS", "SSWWWKKKKWWWSS", "SSSWWWWWWWWSSS", "GGGGGWWWWGGGGG", "GgGGGGGGGGgGGG", "GGGgGGGGGgGGGG"],
+  },
+  {
+    tweet: "Sunset views from Paris never get old.", aspect: "Paris", dataset: "twitter2015", file: "paris.png",
+    art: ["SSSSSSESSSSSYY", "SSSSSSESSSSSYY", "SSSSSEEESSSSSS", "SSSSSESESSSSSS", "SSSSEEEEESSSSS", "SSSSSESESSSSSS", "SSSSESSSESSSSS",
+          "SSSEEEEEEESSSS", "SSSESSSSSESSSS", "SSESSSSSSSESSS", "SSESSEEESSESSS", "SESSESSSESSESS", "GEGGEGGGEGGEGG", "GGGGGGGGGGGGGG"],
+  },
+];
+
+/** Draw pixel art onto a canvas; each character becomes a `cell`-sized square. */
+function drawArt(art, cell, voidColor) {
+  const cv = document.createElement("canvas");
+  cv.width = cv.height = 14 * cell;
+  const ctx = cv.getContext("2d");
+  art.forEach((row, r) => [...row].forEach((ch, c) => {
+    ctx.fillStyle = PALETTE[ch] || voidColor;
+    ctx.fillRect(c * cell, r * cell, cell, cell);
+  }));
+  return cv;
+}
+
+/* ------------------------------------------------------------------ */
+/* Theme: pull cord lamp + eclipse reveal                              */
+/* ------------------------------------------------------------------ */
+const root = document.documentElement;
+const isDark = () => root.dataset.theme === "dark";
+
+function setTheme(next, x, y) {
+  const apply = () => {
+    root.dataset.theme = next;
+    try { localStorage.setItem("imabsa-theme", next); } catch (e) { /* storage blocked */ }
+    $("#cord").setAttribute("aria-label", next === "dark" ? "Switch to light theme" : "Switch to dark theme");
+  };
+  if (!document.startViewTransition || reduceMotion) { apply(); return; }
+  const r = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
+  const vt = document.startViewTransition(apply);
+  vt.ready.then(() => {
+    root.animate(
+      { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${r}px at ${x}px ${y}px)`] },
+      { duration: 750, easing: "cubic-bezier(.2,.8,.2,1)", pseudoElement: "::view-transition-new(root)" },
+    );
+  });
+}
+const toggleTheme = (x, y) => setTheme(isDark() ? "light" : "dark", x, y);
+
+(function cord() {
+  const btn = $("#cord"), path = $("#cordPath"), knob = $("#cordKnob");
+  if (!btn) return;
+  btn.setAttribute("aria-label", isDark() ? "Switch to light theme" : "Switch to dark theme");
+  const REST = 70;
+  let len = REST, sx = 0, vy = 0, vx = 0, raf = 0, drag = null, justDragged = false;
+
+  function render() {
+    path.setAttribute("d", `M20 0 Q ${20 + sx * 0.4} ${len * 0.55} ${20 + sx} ${len}`);
+    knob.style.transform = `translate(${sx}px, ${len - 6}px)`;
   }
-  function draw() {
-    ctx.clearRect(0, 0, w, h);
-    const ox = (w % GAP) / 2, oy = (h % GAP) / 2;
-    for (let y = oy; y < h; y += GAP) {
-      for (let x = ox; x < w; x += GAP) {
-        const d = Math.hypot(x - mx, y - my);
-        const t = Math.max(0, 1 - d / RADIUS) * energy;
-        const s = SIZE + t * 9;
-        ctx.fillStyle = t > 0.02 ? `rgba(61,43,255,${0.12 + t * 0.55})` : "rgba(20,23,43,0.07)";
-        ctx.fillRect(x - s / 2, y - s / 2, s, s);
-      }
-    }
+  function spring() {
+    // damped spring back to rest, with a little sideways sway
+    vy += (REST - len) * 0.18; vy *= 0.78;
+    vx += -sx * 0.12; vx *= 0.86;
+    len += vy; sx += vx;
+    render();
+    if (Math.abs(vy) + Math.abs(len - REST) + Math.abs(vx) + Math.abs(sx) > 0.15) raf = requestAnimationFrame(spring);
+    else { len = REST; sx = 0; render(); raf = 0; }
   }
-  function tick() {
-    mx += (tx - mx) * 0.14; my += (ty - my) * 0.14;
-    energy += ((tx > -999 ? 1 : 0) - energy) * 0.06;
-    draw();
-    if (Math.abs(tx - mx) > 0.5 || Math.abs(ty - my) > 0.5 || (energy > 0.01 && energy < 0.99)) raf = requestAnimationFrame(tick);
-    else raf = 0;
-  }
-  const kick = () => { if (!raf) raf = requestAnimationFrame(tick); };
-  window.addEventListener("pointermove", (e) => { tx = e.clientX; ty = e.clientY; if (mx < -999) { mx = tx; my = ty; } kick(); }, { passive: true });
-  document.addEventListener("pointerleave", () => { tx = ty = -9999; kick(); });
-  window.addEventListener("resize", resize);
-  resize();
+  const release = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(spring); };
+  const knobPoint = () => { const r = knob.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; };
+
+  btn.addEventListener("pointerdown", (e) => {
+    cancelAnimationFrame(raf);
+    drag = { y0: e.clientY, x0: e.clientX, moved: 0 };
+    btn.setPointerCapture(e.pointerId);
+  });
+  btn.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const dy = e.clientY - drag.y0, dx = e.clientX - drag.x0;
+    drag.moved = Math.max(drag.moved, Math.hypot(dx, dy));
+    len = REST + clamp(dy, -10, 90) * 0.85;
+    sx = clamp(dx, -40, 40) * 0.5;
+    render();
+  });
+  btn.addEventListener("pointerup", () => {
+    if (!drag) return;
+    const pulled = len - REST, moved = drag.moved;
+    drag = null;
+    if (moved > 4) justDragged = true;
+    if (pulled > 28) { const [x, y] = knobPoint(); toggleTheme(x, y); }
+    vy = pulled > 28 ? -6 : 0;
+    release();
+  });
+  btn.addEventListener("click", () => {
+    if (justDragged) { justDragged = false; return; }
+    // keyboard or plain click: play a short pull, then switch
+    len = REST + 38; render();
+    const [x, y] = knobPoint();
+    toggleTheme(x, y);
+    vy = -4; release();
+  });
+  render();
 })();
 
-/* header border once the page scrolls */
-(function bar() {
-  const el = $(".bar");
-  const on = () => el.classList.toggle("scrolled", window.scrollY > 8);
-  window.addEventListener("scroll", on, { passive: true });
-  on();
+/* ------------------------------------------------------------------ */
+/* Header: border on scroll, gooey tab bar with scroll spy, menu morph */
+/* ------------------------------------------------------------------ */
+(function header() {
+  const bar = $(".bar");
+  const onScroll = () => bar.classList.toggle("scrolled", window.scrollY > 8);
+  window.addEventListener("scroll", onScroll, { passive: true });
+  onScroll();
+
+  const nav = $("#nav");
+  const links = $$("a[data-spy]", nav);
+  const blobs = $$(".blob", nav);
+  let current = null;
+  function moveTo(link) {
+    links.forEach((l) => l.classList.toggle("active", l === link));
+    blobs.forEach((b) => {
+      if (!link) { b.style.setProperty("--o", 0); return; }
+      b.style.setProperty("--x", `${link.offsetLeft}px`);
+      b.style.setProperty("--w", `${link.offsetWidth}px`);
+      b.style.setProperty("--o", 1);
+    });
+  }
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach((en) => {
+      if (en.isIntersecting) current = links.find((l) => l.dataset.spy === en.target.id) || null;
+      else if (current && current.dataset.spy === en.target.id) current = null;
+    });
+    moveTo(current);
+  }, { rootMargin: "-45% 0px -50% 0px" });
+  ["how", "lab", "findings"].forEach((id) => io.observe(document.getElementById(id)));
+  window.addEventListener("resize", () => moveTo(current));
+
+  const menuBtn = $("#menuBtn"), menu = $("#mobileMenu");
+  const setMenu = (open) => { menu.hidden = !open; menuBtn.setAttribute("aria-expanded", String(open)); menuBtn.setAttribute("aria-label", open ? "Close menu" : "Open menu"); };
+  menuBtn.addEventListener("click", () => setMenu(menu.hidden));
+  menu.addEventListener("click", (e) => { if (e.target.closest("a")) setMenu(false); });
+  $("#mmTheme").addEventListener("click", () => {
+    const r = menuBtn.getBoundingClientRect();
+    toggleTheme(r.left + r.width / 2, r.top + r.height / 2);
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !menu.hidden) { setMenu(false); menuBtn.focus(); } });
+})();
+
+/* ------------------------------------------------------------------ */
+/* Magnetic buttons                                                    */
+/* ------------------------------------------------------------------ */
+(function magnetic() {
+  if (reduceMotion || !matchMedia("(hover: hover)").matches) return;
+  $$("[data-magnetic]").forEach((el) => {
+    const inner = el.firstElementChild;
+    el.addEventListener("pointermove", (e) => {
+      const r = el.getBoundingClientRect();
+      const dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+      el.style.transition = "transform .15s linear, box-shadow .3s, background .2s, color .2s";
+      el.style.transform = `translate(${dx * 0.28}px, ${dy * 0.38}px)`;
+      if (inner) inner.style.transform = `translate(${dx * 0.12}px, ${dy * 0.16}px)`;
+    });
+    el.addEventListener("pointerleave", () => {
+      el.style.transition = "transform .7s var(--spring), box-shadow .3s, background .2s, color .2s";
+      el.style.transform = "";
+      if (inner) inner.style.transform = "";
+    });
+    el.addEventListener("pointerdown", () => replay(inner || el, "jelly"));
+  });
 })();
 
 /* ------------------------------------------------------------------ */
@@ -138,7 +281,7 @@ async function assemble(container) {
   container.classList.remove("gridded");
   container.classList.add("scatter");
   if (reduceMotion) { container.classList.remove("scatter"); return; }
-  void container.offsetWidth; // commit the scattered state
+  void container.offsetWidth;
   await sleep(30);
   container.classList.remove("scatter");
   await sleep(1500);
@@ -146,7 +289,7 @@ async function assemble(container) {
 
 /** Light up random patches for a moment, like attention moving over the image. */
 function attentionFlicker(patches, ms) {
-  if (reduceMotion) return Promise.resolve();
+  if (reduceMotion || !patches.length) return Promise.resolve();
   return new Promise((resolve) => {
     const end = performance.now() + ms;
     const lit = new Set();
@@ -175,36 +318,22 @@ function attentionFlicker(patches, ms) {
   const card = $(".demo-card");
   if (!tweetEl) return;
 
-  // 14 x 14 pixel-art burger, one character per patch
-  const ART = [
-    "..............",
-    ".....BBBB.....",
-    "...BBBsBBBB...",
-    "..BBsBBBBBsB..",
-    ".BBBBBBsBBBBB.",
-    ".BBsBBBBBBsBB.",
-    ".bbbbbbbbbbbb.",
-    "LLLLLLLLLLLLLL",
-    ".CCCCCCCCCCCC.",
-    ".MMMMMMMMMMMM.",
-    ".MMMMMMMMMMMM.",
-    ".TTTTTTTTTTTT.",
-    ".bbbbbbbbbbbb.",
-    "..BBBBBBBBBB..",
-  ];
-  const COLORS = { ".": "#F1F2F7", B: "#E9A23B", b: "#C9801E", s: "#FFF2D0", L: "#3FA34D", C: "#F7C948", M: "#6B3A26", T: "#E5484D" };
-  const patches = buildPatches(patchesEl, (p, r, c) => { p.style.background = COLORS[ART[r][c]] || COLORS["."]; });
+  const ART = EXAMPLES[0].art;
+  const patches = buildPatches(patchesEl, (p, r, c) => {
+    const col = PALETTE[ART[r][c]];
+    if (col) p.style.background = col; else p.classList.add("patch-void");
+  });
 
   const before = "Dinner at ", aspect = "Joe's Diner", after = " tonight. Absolutely delicious!";
-  const bars = [...out.querySelectorAll(".demo-row b")];
+  const bars = $$(".demo-row b", out);
 
-  function finalState() {
+  if (reduceMotion) {
     tweetEl.innerHTML = `${escapeHtml(before)}<span class="mask-chip">&lt;mask&gt;</span>${escapeHtml(after)}`;
     bars.forEach((b) => (b.style.width = `${b.dataset.v * 100}%`));
     out.classList.add("show");
     patchesEl.classList.add("gridded");
+    return;
   }
-  if (reduceMotion) { finalState(); return; }
 
   async function type(text, el) {
     for (const ch of text) {
@@ -213,9 +342,8 @@ function attentionFlicker(patches, ms) {
     }
   }
 
-  async function run() {
+  (async function run() {
     while (true) {
-      // reset
       out.classList.remove("show");
       bars.forEach((b) => (b.style.width = "0"));
       tweetEl.innerHTML = "";
@@ -226,7 +354,6 @@ function attentionFlicker(patches, ms) {
       caret.className = "caret";
       tweetEl.append(textNode, caret);
 
-      // type the tweet, with the aspect in its own span
       await sleep(400);
       await type(before, textNode);
       const asp = document.createElement("span");
@@ -238,7 +365,6 @@ function attentionFlicker(patches, ms) {
       await type(after, rest);
       caret.remove();
 
-      // the photo flies together while the aspect is found and masked
       const assembled = assemble(patchesEl);
       await sleep(500);
       asp.classList.add("is-target");
@@ -246,21 +372,17 @@ function attentionFlicker(patches, ms) {
       asp.outerHTML = '<span class="mask-chip">&lt;mask&gt;</span>';
       await assembled;
 
-      // read the patches
       patchesEl.classList.add("gridded");
       photo.classList.add("scanning");
       await attentionFlicker(patches, 1800);
       photo.classList.remove("scanning");
 
-      // predict
       bars.forEach((b, i) => setTimeout(() => (b.style.width = `${b.dataset.v * 100}%`), i * 120));
       out.classList.add("show");
       await sleep(4200);
     }
-  }
-  run();
+  })();
 
-  // gentle 3D tilt that follows the pointer
   const fig = $(".demo");
   fig.addEventListener("pointermove", (e) => {
     const r = fig.getBoundingClientRect();
@@ -283,6 +405,77 @@ function attentionFlicker(patches, ms) {
 })();
 
 /* ------------------------------------------------------------------ */
+/* Elastic string above the four steps: pluck it with the pointer      */
+/* ------------------------------------------------------------------ */
+(function elasticString() {
+  const wrap = $(".steps-wrap"), svg = $("#string"), path = $("#stringPath");
+  if (!wrap || reduceMotion) { if (svg) svg.style.display = "none"; return; }
+  const BASE = 40;
+  let W = 0, cx = 0, disp = 0, vel = 0, grabbed = false, raf = 0;
+  const NODES = 4;
+  const dots = Array.from({ length: NODES }, () => {
+    const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    c.setAttribute("r", "5");
+    c.setAttribute("fill", "var(--ultra)");
+    svg.appendChild(c);
+    return c;
+  });
+
+  function size() {
+    W = wrap.clientWidth;
+    svg.setAttribute("viewBox", `0 0 ${W} 80`);
+    if (!cx) cx = W / 2;
+    draw();
+  }
+  function curveY(x) {
+    // quadratic through (0,BASE), control (cx, BASE + 2*disp), (W,BASE): solve x(t) numerically
+    let lo = 0, hi = 1;
+    for (let k = 0; k < 18; k++) {
+      const t = (lo + hi) / 2;
+      const xt = 2 * (1 - t) * t * cx + t * t * W;
+      if (xt < x) lo = t; else hi = t;
+    }
+    const t = (lo + hi) / 2;
+    return BASE + 2 * (1 - t) * t * (2 * disp);
+  }
+  function draw() {
+    path.setAttribute("d", `M0 ${BASE} Q ${cx} ${BASE + 2 * disp} ${W} ${BASE}`);
+    dots.forEach((d, i) => {
+      const x = (W / NODES) * (i + 0.5);
+      d.setAttribute("cx", x);
+      d.setAttribute("cy", curveY(x));
+    });
+  }
+  function spring() {
+    vel += -disp * 0.16; vel *= 0.9; disp += vel;
+    draw();
+    if (Math.abs(disp) + Math.abs(vel) > 0.05) raf = requestAnimationFrame(spring);
+    else { disp = 0; vel = 0; draw(); raf = 0; }
+  }
+  const letGo = () => { if (grabbed) { grabbed = false; cancelAnimationFrame(raf); raf = requestAnimationFrame(spring); } };
+
+  // the line sits 36px above the cards: listen on the wrapper, measured in svg coordinates
+  wrap.addEventListener("pointermove", (e) => {
+    const r = svg.getBoundingClientRect();
+    const x = e.clientX - r.left, y = e.clientY - r.top - BASE;
+    if (!grabbed && Math.abs(y) < 12 && Math.abs(y - disp) < 14) { grabbed = true; cancelAnimationFrame(raf); }
+    if (grabbed) {
+      cx = clamp(x, W * 0.1, W * 0.9);
+      disp = clamp(y, -36, 36);
+      draw();
+      if (Math.abs(y) >= 36) letGo();
+    }
+  });
+  wrap.addEventListener("pointerleave", letGo);
+  window.addEventListener("resize", size);
+  size();
+  // a tiny pluck when the section first appears, so people notice it
+  new IntersectionObserver((en, obs) => {
+    if (en[0].isIntersecting) { disp = 18; vel = 0; cancelAnimationFrame(raf); raf = requestAnimationFrame(spring); obs.disconnect(); }
+  }, { threshold: 0.6 }).observe(wrap);
+})();
+
+/* ------------------------------------------------------------------ */
 /* Lab form                                                            */
 /* ------------------------------------------------------------------ */
 const form = $("#form");
@@ -298,11 +491,27 @@ const dropFull = $("#dropFull");
 const livePatches = $("#livePatches");
 const fileName = $("#fileName");
 const clearImg = $("#clearImg");
-const go = $("#go");
 const formError = $("#formError");
+const seg = $("#seg");
 
 let imageFile = null;
 let livePatchEls = [];
+
+/* Stretch toggle: the leading edge moves first, the trailing edge catches up. */
+(function stretchToggle() {
+  const sync = (dir) => {
+    const v = form.querySelector('input[name="dataset"]:checked').value;
+    seg.classList.toggle("go-right", dir === "right");
+    seg.classList.toggle("go-left", dir === "left");
+    seg.classList.toggle("at-2017", v === "twitter2017");
+  };
+  seg.addEventListener("change", (e) => sync(e.target.value === "twitter2017" ? "right" : "left"));
+  sync();
+})();
+function setDataset(v) {
+  const input = form.querySelector(`input[name="dataset"][value="${v}"]`);
+  if (input && !input.checked) { input.checked = true; input.dispatchEvent(new Event("change", { bubbles: true })); }
+}
 
 /* Show which words will be hidden, live, under the textarea. */
 function updateMirror() {
@@ -322,7 +531,7 @@ function updateMirror() {
   else if (found) maskHint.textContent = `"${a}" is in the tweet, so the model will see <mask> instead.`;
   else maskHint.textContent = `"${a}" isn't in the tweet, so the model sees the tweet as written.`;
 }
-tweet.addEventListener("input", () => { updateMirror(); tweet.closest(".field").classList.remove("invalid"); });
+tweet.addEventListener("input", () => { updateMirror(); tweet.closest(".field").classList.remove("invalid"); hideFormError(); });
 tweet.addEventListener("scroll", () => (mirror.scrollTop = tweet.scrollTop));
 aspectIn.addEventListener("input", updateMirror);
 updateMirror();
@@ -365,14 +574,12 @@ function loadImage(file) {
 fileIn.addEventListener("change", () => loadImage(fileIn.files[0]));
 ["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
 ["dragleave", "drop"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
-drop.addEventListener("drop", (e) => {
-  const f = e.dataTransfer.files[0];
-  if (f) loadImage(f);
-});
+drop.addEventListener("drop", (e) => { const f = e.dataTransfer.files[0]; if (f) loadImage(f); });
 clearImg.addEventListener("click", () => {
   imageFile = null;
   fileIn.value = "";
   livePatches.innerHTML = "";
+  livePatchEls = [];
   livePatches.classList.remove("gridded");
   drop.classList.remove("has-img");
   dropEmpty.hidden = false;
@@ -384,12 +591,123 @@ clearImg.addEventListener("click", () => {
 function showFormError(msg) { formError.textContent = msg; formError.hidden = false; }
 function hideFormError() { formError.hidden = true; }
 
+/* Card fan of examples: click one to fill the whole form. */
+(function fan() {
+  const fanEl = $("#fan");
+  EXAMPLES.forEach((ex) => {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "fan-card";
+    card.setAttribute("role", "listitem");
+    card.setAttribute("aria-label", `Use example: ${ex.tweet}`);
+    const thumb = drawArt(ex.art, 1, "#F1F2F7");
+    const txt = document.createElement("span");
+    txt.className = "fc-text";
+    txt.textContent = ex.tweet;
+    const asp = document.createElement("span");
+    asp.className = "fc-asp";
+    asp.innerHTML = `aspect <b>${escapeHtml(ex.aspect)}</b>`;
+    card.append(thumb, txt, asp);
+    card.addEventListener("click", () => {
+      replay(card, "picked");
+      tweet.value = ex.tweet;
+      aspectIn.value = ex.aspect;
+      setDataset(ex.dataset);
+      updateMirror();
+      tweet.closest(".field").classList.remove("invalid");
+      drawArt(ex.art, 32, "#F1F2F7").toBlob((blob) => loadImage(new File([blob], ex.file, { type: "image/png" })), "image/png");
+      const r = form.getBoundingClientRect();
+      if (r.top < 0 || r.top > innerHeight * 0.6) form.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+    });
+    fanEl.appendChild(card);
+  });
+})();
+
+/* ------------------------------------------------------------------ */
+/* Swipe to confirm + paper plane                                      */
+/* ------------------------------------------------------------------ */
+const swipe = $("#swipe"), knobEl = $("#swipeKnob"), swipeText = $("#swipeText"), plane = $("#plane");
+const swipeMax = () => swipe.clientWidth - 64;
+let swipeBusy = false;
+
+function setKnob(px, animate) {
+  swipe.classList.toggle("settle", !!animate);
+  const m = swipeMax();
+  swipe.style.setProperty("--k", `${clamp(px, 0, m)}px`);
+  swipe.style.setProperty("--kp", (clamp(px, 0, m) / m).toFixed(3));
+}
+function resetSwipe() {
+  swipe.classList.remove("done");
+  swipeText.textContent = "Slide to predict";
+  plane.classList.remove("fly");
+  setKnob(0, true);
+  swipeBusy = false;
+}
+(function swipeDrag() {
+  let start = null, dragged = false;
+  knobEl.addEventListener("pointerdown", (e) => {
+    if (swipeBusy) return;
+    start = { x: e.clientX, k: parseFloat(getComputedStyle(swipe).getPropertyValue("--k")) || 0 };
+    dragged = false;
+    swipe.classList.add("dragging");
+    knobEl.setPointerCapture(e.pointerId);
+  });
+  knobEl.addEventListener("pointermove", (e) => {
+    if (!start) return;
+    const dx = e.clientX - start.x;
+    if (Math.abs(dx) > 3) dragged = true;
+    setKnob(start.k + dx, false);
+  });
+  knobEl.addEventListener("pointerup", (e) => {
+    if (!start) return;
+    const k = start.k + (e.clientX - start.x);
+    start = null;
+    swipe.classList.remove("dragging");
+    if (!dragged) return; // a plain click is handled by the swipe's click listener
+    if (k / swipeMax() > 0.8) form.requestSubmit();
+    else setKnob(0, true);
+  });
+  swipe.addEventListener("click", (e) => {
+    if (swipeBusy || dragged) { dragged = false; return; }
+    form.requestSubmit();
+  });
+  swipe.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (!swipeBusy) form.requestSubmit(); }
+  });
+  window.addEventListener("resize", () => { if (swipe.classList.contains("done")) setKnob(swipeMax(), false); });
+})();
+
+/** Slide the knob home and send the paper plane off. */
+async function launch() {
+  swipeBusy = true;
+  setKnob(swipeMax(), true);
+  swipe.classList.add("done");
+  swipeText.textContent = "Sending";
+  if (reduceMotion) return;
+  await sleep(380);
+  plane.classList.add("fly");
+  // a short dotted trail behind the plane
+  const r0 = knobEl.getBoundingClientRect();
+  for (let i = 0; i < 7; i++) {
+    setTimeout(() => {
+      const t = (i + 1) / 8;
+      const dot = document.createElement("span");
+      dot.className = "plane-trail";
+      dot.style.position = "fixed";
+      dot.style.left = `${r0.left + r0.width / 2 + 340 * t * t}px`;
+      dot.style.top = `${r0.top + r0.height / 2 - 260 * t * t}px`;
+      document.body.appendChild(dot);
+      dot.addEventListener("animationend", () => dot.remove());
+    }, 120 + i * 85);
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* Prediction                                                          */
 /* ------------------------------------------------------------------ */
 async function predict(fd) {
   if (USE_MOCK) {
-    await sleep(1600);
+    await sleep(1800);
     const text = fd.get("tweet"), a = (fd.get("aspect") || "").trim();
     const hidden = !!a && new RegExp(escapeRe(a), "i").test(text);
     return {
@@ -416,6 +734,38 @@ async function predict(fd) {
 const states = { empty: $("#stEmpty"), loading: $("#stLoading"), error: $("#stError"), done: $("#stDone") };
 function show(name) { Object.entries(states).forEach(([k, el]) => (el.hidden = k !== name)); }
 
+/* Progress ring + checklist shown while the request runs. */
+const ring = (() => {
+  const fg = $("#ringFg"), label = $("#ringPct"), wrap = $(".ring-wrap"), items = $$("#checklist li");
+  const C = 326.73;
+  let p = 0, target = 0, raf = 0, timers = [];
+  const paint = () => {
+    p += (target - p) * 0.12;
+    fg.style.strokeDashoffset = (C * (1 - p)).toFixed(1);
+    label.textContent = `${Math.round(p * 100)}%`;
+    if (Math.abs(target - p) > 0.002) raf = requestAnimationFrame(paint);
+    else { p = target; fg.style.strokeDashoffset = (C * (1 - p)).toFixed(1); label.textContent = `${Math.round(p * 100)}%`; raf = 0; }
+  };
+  const go = (v) => { target = v; if (!raf) raf = requestAnimationFrame(paint); };
+  const mark = (i) => items.forEach((li, k) => { li.classList.toggle("done", k < i); li.classList.toggle("active", k === i); });
+  return {
+    start() {
+      timers.forEach(clearTimeout); timers = [];
+      p = 0; target = 0; mark(0); wrap.classList.remove("complete");
+      fg.style.strokeDashoffset = C; label.textContent = "0%";
+      [[0, 0.18], [450, 0.42], [950, 0.66], [1450, 0.86]].forEach(([t, v], i) => timers.push(setTimeout(() => { mark(i); go(v); }, t)));
+    },
+    async finish() {
+      timers.forEach(clearTimeout); timers = [];
+      mark(items.length); go(1);
+      await sleep(reduceMotion ? 0 : 450);
+      replay(wrap, "complete");
+      await sleep(reduceMotion ? 0 : 450);
+    },
+    stop() { timers.forEach(clearTimeout); timers = []; },
+  };
+})();
+
 const SENT_COLORS = { positive: "var(--pos)", neutral: "var(--neu)", negative: "var(--neg)" };
 
 function renderBars(el, probs, colorFor) {
@@ -423,28 +773,27 @@ function renderBars(el, probs, colorFor) {
   el.innerHTML = entries.map(([k, v], i) => `
     <div class="bar-row${i === 0 ? " top" : ""}" style="--c:${colorFor(k, i)}">
       <span>${escapeHtml(k)}</span>
-      <div class="bar-track"><div class="bar-fill" style="--d:${(0.15 + i * 0.1).toFixed(2)}s" data-v="${v}"></div></div>
+      <div class="bar-track"><div class="bar-fill" style="--d:${(0.25 + i * 0.1).toFixed(2)}s" data-v="${v}"></div></div>
       <span class="bar-pct" data-v="${v}">0%</span>
     </div>`).join("");
   requestAnimationFrame(() => requestAnimationFrame(() => {
-    el.querySelectorAll(".bar-fill").forEach((b) => (b.style.width = `${Math.max(0, Math.min(1, b.dataset.v)) * 100}%`));
-    el.querySelectorAll(".bar-pct").forEach((p) => countUp(p, +p.dataset.v));
+    $$(".bar-fill", el).forEach((b) => (b.style.width = `${clamp(+b.dataset.v, 0, 1) * 100}%`));
+    $$(".bar-pct", el).forEach((p) => countUp(p, +p.dataset.v, (v) => pct(v)));
   }));
   return entries[0];
 }
 
-function countUp(el, v) {
-  if (reduceMotion) { el.textContent = pct(v); return; }
-  const t0 = performance.now(), dur = 1000;
+function countUp(el, v, fmt, dur = 1000) {
+  if (reduceMotion) { el.textContent = fmt(v); return; }
+  const t0 = performance.now();
   (function f(now) {
     const t = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - t, 3);
-    el.textContent = pct(v * e);
+    el.textContent = fmt(v * e);
     if (t < 1) requestAnimationFrame(f);
   })(t0);
 }
 
 function renderResult(data, aspect) {
-  // the text the model actually received, with the mask token drawn as a chip
   $("#seenText").innerHTML = escapeHtml(data.text_seen || "").replace(/&lt;mask&gt;/g, '<span class="mask-chip">&lt;mask&gt;</span>');
   $("#seenNote").textContent = data.aspect_hidden
     ? `"${aspect}" was in the tweet, so it was hidden. The model had to infer it from the other words and the image.`
@@ -466,14 +815,12 @@ function renderResult(data, aspect) {
 
   const labels = { sentiment: "Sentiment model", aspect_type: "Aspect-type model" };
   const models = data.models || {};
+  const pct1 = (v) => (typeof v === "number" ? `${(v * 100).toFixed(1)}%` : "n/a");
   $("#modelsInfo").innerHTML = Object.entries(labels).filter(([k]) => models[k]).map(([k, label]) => {
     const m = models[k];
-    const pct1 = (v) => (typeof v === "number" ? `${(v * 100).toFixed(1)}%` : "n/a");
-    const acc = pct1(m.test_acc);
-    const f1 = pct1(m.macro_f1);
     return `<div class="model">
       <dt>${label} <span class="model-name">${escapeHtml(m.model || "")}</span></dt>
-      <dd><span><strong>${acc}</strong>test accuracy</span><span><strong>${f1}</strong>macro-F1</span></dd>
+      <dd><span><strong>${pct1(m.test_acc)}</strong>test accuracy</span><span><strong>${pct1(m.macro_f1)}</strong>macro-F1</span></dd>
     </div>`;
   }).join("");
 }
@@ -482,36 +829,39 @@ let lastPayload = null;
 
 async function submit(fd, aspect) {
   hideFormError();
-  go.classList.add("busy");
-  go.querySelector(".go-label").textContent = "Predicting";
   show("loading");
+  ring.start();
   dropFull.classList.add("scanning");
-  const flicker = attentionFlicker(livePatchEls, 1200);
+  const flicker = attentionFlicker(livePatchEls, 1400);
   if (window.innerWidth < 980) $("#results").scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+  const minWait = sleep(reduceMotion ? 0 : 1700);
   try {
     const data = await predict(fd);
-    await flicker;
+    await Promise.all([flicker, minWait]);
+    await ring.finish();
     renderResult(data, aspect);
     show("done");
   } catch (err) {
+    ring.stop();
     $("#errMsg").textContent = err.message || String(err);
     show("error");
   } finally {
     dropFull.classList.remove("scanning");
-    go.classList.remove("busy");
-    go.querySelector(".go-label").textContent = "Predict";
+    setTimeout(resetSwipe, 500);
   }
 }
 
-form.addEventListener("submit", (e) => {
+form.addEventListener("submit", async (e) => {
   e.preventDefault();
+  if (swipeBusy) return;
   const text = tweet.value.trim();
   const problems = [];
-  if (!text) { problems.push("a tweet"); tweet.closest(".field").classList.add("invalid"); }
+  if (!text) { problems.push("a tweet"); replay(tweet.closest(".field"), "invalid"); tweet.closest(".field").classList.add("invalid"); }
   if (!imageFile) { problems.push("an image"); drop.closest(".field").classList.add("invalid"); }
   if (problems.length) {
     showFormError(`Add ${problems.join(" and ")} to get a prediction.`);
-    (text ? fileIn : tweet).focus();
+    setKnob(0, true);
+    (text ? drop : tweet).focus();
     return;
   }
   const aspect = aspectIn.value.trim();
@@ -521,7 +871,28 @@ form.addEventListener("submit", (e) => {
   fd.append("aspect", aspect);
   fd.append("image", imageFile, imageFile.name);
   lastPayload = { fd, aspect };
+  await launch();
   submit(fd, aspect);
 });
 
-$("#retry").addEventListener("click", () => { if (lastPayload) submit(lastPayload.fd, lastPayload.aspect); });
+$("#retry").addEventListener("click", async () => {
+  if (!lastPayload || swipeBusy) return;
+  await launch();
+  submit(lastPayload.fd, lastPayload.aspect);
+});
+
+/* ------------------------------------------------------------------ */
+/* Findings: count the numbers up when they scroll into view           */
+/* ------------------------------------------------------------------ */
+(function facts() {
+  const els = $$(".facts strong[data-count]");
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach((en) => {
+      if (!en.isIntersecting) return;
+      const el = en.target, v = +el.dataset.count, dec = +el.dataset.dec, suf = el.dataset.suffix || "";
+      countUp(el, v, (x) => `${x.toFixed(dec)}${suf}`, 1400);
+      io.unobserve(el);
+    });
+  }, { threshold: 0.6 });
+  els.forEach((el) => io.observe(el));
+})();
