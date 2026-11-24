@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ImplicitMABSA</title>
+  <meta name="description" content="Multimodal implicit aspect-based sentiment analysis: hide the subject of a tweet and let a text + image model infer how the author feels about it.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300..800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script>document.documentElement.classList.add('js');</script>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%233D2BFF'/%3E%3Crect x='3' y='7' width='10' height='2' fill='white'/%3E%3C/svg%3E">
+</head>
+<body>
+  <canvas id="field" aria-hidden="true"></canvas>
+
+  <header class="bar">
+    <a class="wordmark" href="#top" aria-label="ImplicitMABSA home">
+      <span class="wordmark-mark" aria-hidden="true"></span><span>Implicit<b>MABSA</b></span>
+    </a>
+    <nav class="bar-nav" aria-label="Sections">
+      <a href="#how">How it works</a>
+      <a href="#lab">Try it</a>
+      <a href="#findings">Findings</a>
+      <a class="bar-gh" href="https://github.com/Nishtha027/ImplicitMABSA" target="_blank" rel="noopener">GitHub</a>
+    </nav>
+  </header>
+
+  <main id="top">
+    <!-- HERO: the whole idea, animated -->
+    <section class="hero">
+      <div class="hero-copy">
+        <h1 class="hero-title">
+          <span class="line">Read the</span>
+          <span class="line"><span class="mask-word" id="heroMask" aria-label="word">word</span> a tweet</span>
+          <span class="line">doesn't say.</span>
+        </h1>
+        <p class="hero-lede">
+          Give it a tweet and its photo. ImplicitMABSA hides the subject, then infers how the author feels about it
+          and what kind of thing it is, from the words left behind and 196 patches of the image.
+        </p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="#lab">Try the model</a>
+          <a class="btn btn-quiet" href="#how">See how it works</a>
+        </div>
+      </div>
+
+      <figure class="demo" aria-label="Animated example of a prediction">
+        <div class="demo-card">
+          <div class="demo-head">
+            <span class="avatar" aria-hidden="true"></span>
+            <div>
+              <div class="demo-name">foodie_ana</div>
+              <div class="demo-handle">@foodie_ana</div>
+            </div>
+          </div>
+          <p class="demo-tweet" id="demoTweet" aria-live="off"></p>
+          <div class="demo-photo">
+            <div class="patches" id="demoPatches"></div>
+            <div class="scan" aria-hidden="true"></div>
+          </div>
+          <div class="demo-out" id="demoOut">
+            <div class="demo-row"><span>positive</span><i><b data-v="0.86"></b></i><em>86%</em></div>
+            <div class="demo-row"><span>neutral</span><i><b data-v="0.11"></b></i><em>11%</em></div>
+            <div class="demo-row"><span>negative</span><i><b data-v="0.03"></b></i><em>3%</em></div>
+            <div class="demo-type">hidden aspect is an <strong>organisation</strong></div>
+          </div>
+        </div>
+        <figcaption>Illustrative example. Try your own below.</figcaption>
+      </figure>
+    </section>
+
+    <!-- HOW IT WORKS: a real sequence, so it is numbered -->
+    <section class="how" id="how" aria-labelledby="howTitle">
+      <h2 id="howTitle" class="section-title">Four steps from tweet to prediction</h2>
+      <ol class="steps">
+        <li class="step">
+          <div class="step-visual v-mask" aria-hidden="true">
+            <span>Dinner at</span><span class="tok-mask">&lt;mask&gt;</span><span>tonight</span>
+          </div>
+          <h3>Hide the aspect</h3>
+          <p>If you name the aspect and it appears in the tweet, it is replaced by a mask token. The model never sees it.</p>
+        </li>
+        <li class="step">
+          <div class="step-visual v-text" aria-hidden="true">
+            <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+          </div>
+          <h3>Read the words</h3>
+          <p>A Twitter RoBERTa encoder, fine-tuned on this task, turns the remaining words into token states.</p>
+        </li>
+        <li class="step">
+          <div class="step-visual v-patch" aria-hidden="true"></div>
+          <h3>Read the photo</h3>
+          <p>A frozen Vision Transformer cuts the image into 14 × 14 = 196 patches and encodes each one.</p>
+        </li>
+        <li class="step">
+          <div class="step-visual v-fuse" aria-hidden="true">
+            <i style="--w:.82"></i><i style="--w:.12"></i><i style="--w:.06"></i>
+          </div>
+          <h3>Fuse and predict</h3>
+          <p>Text and image features are combined, and two heads predict the sentiment and the aspect's type.</p>
+        </li>
+      </ol>
+    </section>
+
+    <!-- LAB: the real tool -->
+    <section class="lab" id="lab" aria-labelledby="labTitle">
+      <div class="lab-intro">
+        <h2 id="labTitle" class="section-title">Try it on your own tweet</h2>
+        <p>Paste a tweet, add the photo that came with it, and optionally name what the tweet is about.</p>
+      </div>
+
+      <div class="lab-grid">
+        <form class="panel form" id="form" novalidate>
+          <fieldset class="field">
+            <legend class="field-label">Model trained on</legend>
+            <div class="seg" role="radiogroup">
+              <label><input type="radio" name="dataset" value="twitter2015" checked><span>Twitter-2015</span></label>
+              <label><input type="radio" name="dataset" value="twitter2017"><span>Twitter-2017</span></label>
+              <i class="seg-thumb" aria-hidden="true"></i>
+            </div>
+          </fieldset>
+
+          <div class="field">
+            <label class="field-label" for="tweet">Tweet</label>
+            <div class="tweet-wrap">
+              <div class="tweet-mirror" id="tweetMirror" aria-hidden="true"></div>
+              <textarea id="tweet" name="tweet" rows="4" maxlength="400" required
+                placeholder="Just got my new iPhone, so happy!"></textarea>
+            </div>
+            <div class="field-foot">
+              <span id="maskHint" class="hint">Words matching the aspect will be highlighted here.</span>
+              <span id="count" class="hint count">0 / 400</span>
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="aspect">Aspect <span class="opt">optional</span></label>
+            <input id="aspect" name="aspect" type="text" autocomplete="off" placeholder="iPhone">
+          </div>
+
+          <div class="field">
+            <span class="field-label" id="imgLabel">Image</span>
+            <label class="drop" id="drop" for="image" aria-labelledby="imgLabel">
+              <input id="image" name="image" type="file" accept="image/png,image/jpeg" required>
+              <div class="drop-empty" id="dropEmpty">
+                <svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path d="M12 16V4m0 0-4.5 4.5M12 4l4.5 4.5M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span class="drop-main">Drop a JPG or PNG, or click to choose</span>
+                <span class="drop-sub">It will be split into 196 patches, just like the model sees it.</span>
+              </div>
+              <div class="drop-full" id="dropFull" hidden>
+                <div class="patches patches-live" id="livePatches"></div>
+                <div class="scan" aria-hidden="true"></div>
+              </div>
+            </label>
+            <div class="field-foot">
+              <span class="hint" id="fileName"></span>
+              <button type="button" class="link-btn" id="clearImg" hidden>Remove image</button>
+            </div>
+          </div>
+
+          <button class="btn btn-primary btn-go" id="go" type="submit">
+            <span class="go-label">Predict</span>
+            <span class="go-spin" aria-hidden="true"></span>
+          </button>
+          <p class="form-error" id="formError" role="alert" hidden></p>
+        </form>
+
+        <section class="panel results" id="results" aria-live="polite" aria-labelledby="resTitle">
+          <h3 id="resTitle" class="sr-only">Prediction</h3>
+
+          <div class="state state-empty" id="stEmpty">
+            <div class="empty-art" aria-hidden="true">
+              <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+            </div>
+            <p class="empty-title">Your prediction will appear here</p>
+            <p class="empty-sub">Fill in a tweet and an image, then press Predict.</p>
+          </div>
+
+          <div class="state state-loading" id="stLoading" hidden>
+            <p class="loading-title">Reading the tweet and 196 image patches</p>
+            <div class="loading-track"><i></i></div>
+          </div>
+
+          <div class="state state-error" id="stError" hidden>
+            <p class="error-title">The prediction did not go through</p>
+            <p class="error-msg" id="errMsg"></p>
+            <button type="button" class="btn btn-quiet" id="retry">Try again</button>
+          </div>
+
+          <div class="state state-done" id="stDone" hidden>
+            <div class="seen">
+              <span class="res-label">What the model read</span>
+              <p class="seen-text" id="seenText"></p>
+              <p class="seen-note" id="seenNote"></p>
+            </div>
+
+            <div class="verdict">
+              <div class="verdict-main">
+                <span class="res-label">Sentiment toward the aspect</span>
+                <p class="verdict-word" id="sentWord">positive</p>
+                <p class="verdict-conf" id="sentConf"></p>
+              </div>
+              <div class="bars" id="sentBars"></div>
+            </div>
+
+            <div class="verdict">
+              <div class="verdict-main">
+                <span class="res-label">Type of the hidden aspect</span>
+                <p class="verdict-word verdict-word-sm" id="typeWord">person</p>
+                <p class="verdict-conf" id="typeConf"></p>
+              </div>
+              <div class="bars" id="typeBars"></div>
+            </div>
+
+            <dl class="models" id="modelsInfo"></dl>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- FINDINGS -->
+    <section class="findings" id="findings" aria-labelledby="findTitle">
+      <h2 id="findTitle" class="section-title">What the research found</h2>
+      <p class="findings-lede">
+        We hid every aspect in the Twitter-2015 and Twitter-2017 benchmarks and compared image-only, text-only,
+        concatenation and gated cross-attention models over three seeds. The words left in a tweet turned out to carry
+        almost everything: hiding the aspect cost the text model under two points, and the photo did not add a
+        significant gain on these benchmarks.
+      </p>
+      <ul class="facts">
+        <li><strong>72.8%</strong><span>macro-F1 on Twitter-2015 with the aspect hidden</span></li>
+        <li><strong>0.4 pts</strong><span>lost by hiding the aspect on Twitter-2015</span></li>
+        <li><strong>66 runs</strong><span>trained in 107 minutes on one T4 GPU</span></li>
+      </ul>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <p>ImplicitMABSA, a research project at Bennett University by Nishtha Jain, Aman Swamy and Tamanna Arora.</p>
+    <a href="https://github.com/Nishtha027/ImplicitMABSA" target="_blank" rel="noopener">Source on GitHub</a>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
