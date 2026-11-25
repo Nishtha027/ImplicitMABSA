@@ -467,24 +467,6 @@ if (PAGE === "home") {
     fig.addEventListener("pointerleave", () => (card.style.transform = ""));
   })();
 
-  (function marquee() {
-    const A = [
-      ["Can't stop replaying the new <mask> album", "pos"], ["<mask> customer service kept me on hold for two hours", "neg"],
-      ["Landed in <mask>, the view from the hotel is unreal", "pos"], ["<mask> announced the new lineup today", "neu"],
-      ["Huge win for <mask> tonight!", "pos"], ["Stuck in traffic outside <mask> again", "neg"],
-    ];
-    const B = [
-      ["Watching <mask> live in concert right now", "pos"], ["<mask> just raised prices again", "neg"],
-      ["Press conference with <mask> at 5pm", "neu"], ["Best tacos in <mask>, no contest", "pos"],
-      ["<mask> lost the final in extra time", "neg"], ["Meeting <mask> for coffee later", "neu"],
-    ];
-    const C = { pos: "var(--pos)", neg: "var(--neg)", neu: "var(--neu)" };
-    const html = (list) => list.map(([t, s]) => `<span class="mq"><span class="dot" style="--c:${C[s]}"></span>${escapeHtml(t).replace("&lt;mask&gt;", '<span class="tok-mask">&lt;mask&gt;</span>')}</span>`).join("");
-    $("#mq1").innerHTML = html(A) + html(A);
-    $("#mq2").innerHTML = html(B) + html(B);
-    $$(".marquee-row").forEach((r, i) => i === 0 || r.setAttribute("aria-hidden", "true"));
-  })();
-
   (function story() {
     const stage = $("#stage");
     const tokens = $("#tokens");

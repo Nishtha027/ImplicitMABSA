@@ -24,6 +24,7 @@
 <body data-page="lab">
   <div class="curtain" id="curtain" aria-hidden="true"></div>
   <div class="curtain-label" aria-hidden="true"><strong id="curtainName">Lab</strong><span id="curtainSub">reading 196 patches</span></div>
+  <div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
 
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
     <filter id="goo"><feGaussianBlur in="SourceGraphic" stdDeviation="6" result="b"/><feColorMatrix in="b" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 20 -9" result="g"/><feComposite in="SourceGraphic" in2="g" operator="atop"/></filter>
@@ -56,7 +57,6 @@
 
   <main>
     <section class="page-head wrap">
-      <div class="aurora" aria-hidden="true"><i></i><i></i></div>
       <div class="lab-head">
         <div>
           <span class="kicker">Lab</span>
@@ -65,7 +65,7 @@
         </div>
         <div class="rise">
           <div class="fan" id="fan" role="list" aria-label="Example tweets"></div>
-          <p class="fan-caption">Examples, click one</p>
+          <p class="fan-caption">Pick an example</p>
         </div>
       </div>
     </section>

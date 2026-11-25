@@ -24,6 +24,7 @@
 <body data-page="home">
   <div class="curtain" id="curtain" aria-hidden="true"></div>
   <div class="curtain-label" aria-hidden="true"><strong id="curtainName">ImplicitMABSA</strong><span id="curtainSub">reading 196 patches</span></div>
+  <div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
 
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
     <filter id="goo"><feGaussianBlur in="SourceGraphic" stdDeviation="6" result="b"/><feColorMatrix in="b" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 20 -9" result="g"/><feComposite in="SourceGraphic" in2="g" operator="atop"/></filter>
@@ -57,7 +58,6 @@
   <main>
     <!-- 1. hero: the whole idea in one look -->
     <section class="hero wrap">
-      <div class="aurora" aria-hidden="true"><i></i><i></i></div>
       <div class="hero-grid">
         <div>
           <h1 class="display hero-title reveal">
@@ -98,13 +98,7 @@
       </div>
     </section>
 
-    <!-- 2. masked tweets drifting past -->
-    <section class="marquee" aria-label="Examples of tweets with the aspect hidden">
-      <div class="marquee-row" id="mq1"></div>
-      <div class="marquee-row rev" id="mq2"></div>
-    </section>
-
-    <!-- 3. how it works: sticky panel builds the prediction as you scroll -->
+    <!-- 2. how it works: sticky panel builds the prediction as you scroll -->
     <section class="how-sec wrap" id="how" aria-labelledby="howTitle">
       <div class="how-head">
         <span class="kicker">How it works</span>
@@ -162,7 +156,7 @@
       </div>
     </section>
 
-    <!-- 4. call to action -->
+    <!-- 3. call to action -->
     <section class="wrap">
       <div class="cta">
         <div class="cta-grid" id="ctaGrid" aria-hidden="true"></div>
