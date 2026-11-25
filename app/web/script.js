@@ -397,6 +397,52 @@ function initSeg(seg, onChange) {
 /* HOME                                                                */
 /* ================================================================== */
 if (PAGE === "home") {
+  // hide-a-word playground in the call-to-action card (an illustration, not the trained model)
+  (function playground() {
+    const tweetEl = $("#playTweet");
+    if (!tweetEl) return;
+    const WORDS = [
+      { t: "Absolutely", w: 1 }, { t: "loved", w: 3 }, { t: "dinner", w: 0 }, { t: "at", w: 0 },
+      { t: "Joe's Diner", w: 0, start: true }, { t: "tonight!", w: 0 },
+    ];
+    const rows = $$(".pm-row", $("#playMeter"));
+    const verdict = $("#playVerdict");
+    const buttons = WORDS.map((wd) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "word" + (wd.w ? " opinion" : "");
+      tweetEl.appendChild(b);
+      return b;
+    });
+    let masked = new Set();
+    function render() {
+      buttons.forEach((b, i) => {
+        const on = masked.has(i);
+        b.classList.toggle("masked", on);
+        b.textContent = on ? "<mask>" : WORDS[i].t;
+        b.setAttribute("aria-pressed", String(on));
+        b.setAttribute("aria-label", on ? `Show "${WORDS[i].t}"` : `Hide "${WORDS[i].t}"`);
+      });
+      const score = WORDS.reduce((s, wd, i) => s + (masked.has(i) ? 0 : wd.w), 0);
+      const pos = 0.12 + 0.185 * score, neg = 0.03, neu = 1 - pos - neg;
+      const probs = { positive: pos, neutral: neu, negative: neg };
+      const top = pos >= neu ? "positive" : "neutral";
+      rows.forEach((r) => {
+        const v = probs[r.dataset.k];
+        $("b", r).style.width = `${(v * 100).toFixed(1)}%`;
+        $("em", r).textContent = pct(v);
+        r.classList.toggle("top", r.dataset.k === top);
+      });
+      verdict.innerHTML = top === "positive"
+        ? "The words left still say <strong>positive</strong>"
+        : "With the opinion hidden, it reads <strong>neutral</strong>";
+    }
+    const reset = () => { masked = new Set(WORDS.map((w, i) => (w.start ? i : -1)).filter((i) => i >= 0)); render(); };
+    buttons.forEach((b, i) => b.addEventListener("click", () => { if (masked.has(i)) masked.delete(i); else masked.add(i); render(); }));
+    $("#playReset").addEventListener("click", reset);
+    reset();
+  })();
+
   (function heroMask() {
     const el = $("#heroMask");
     const words = ["word", "brand", "place", "team", "person"];

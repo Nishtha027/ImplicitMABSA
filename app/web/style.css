@@ -245,7 +245,43 @@ html.covering, html.arriving { overflow: hidden; }
 .cta-grid { position: absolute; inset: 0; z-index: -1; display: grid; grid-template-columns: repeat(28, 1fr); opacity: .35; }
 .cta-grid i { aspect-ratio: 1; box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .25); transition: background 1.2s; }
 .cta-grid i.on { background: rgba(255, 255, 255, .35); transition: background .1s; }
-.cta h2 { margin: 0 0 28px; font-size: clamp(2.6rem, 6.4vw, 6rem); line-height: .95; letter-spacing: -.045em; font-weight: 760; max-width: 14ch; }
+.cta { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(32px, 5vw, 80px); align-items: center; }
+.cta h2 { margin: 0 0 20px; font-size: clamp(2.6rem, 5.4vw, 5.6rem); line-height: .95; letter-spacing: -.045em; font-weight: 760; max-width: 12ch; }
+.cta-lede { margin: 0 0 32px; max-width: 40ch; font-size: clamp(16px, 1.25vw, 19px); color: rgba(255, 255, 255, .82); }
+
+/* hide-a-word playground */
+.play {
+  position: relative; padding: clamp(20px, 2.4vw, 30px); border-radius: 24px;
+  background: rgba(10, 8, 60, .38); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .18), 0 30px 60px -30px rgba(0, 0, 0, .5);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+}
+.play-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.play-head .avatar { width: 30px; height: 30px; }
+.play-handle { font-size: 14px; color: rgba(255, 255, 255, .7); }
+.play-reset { margin-left: auto; border: 0; background: rgba(255, 255, 255, .12); color: #fff; font: 600 13px var(--font); padding: 7px 12px; border-radius: 999px; cursor: pointer; transition: background .2s; }
+.play-reset:hover { background: rgba(255, 255, 255, .24); }
+.play-tweet { margin: 0 0 22px; display: flex; flex-wrap: wrap; gap: 8px; font-size: clamp(17px, 1.5vw, 21px); line-height: 1.2; }
+.word {
+  border: 0; cursor: pointer; font: 600 1em/1.2 var(--font); color: #fff;
+  padding: 8px 12px; border-radius: 10px; background: rgba(255, 255, 255, .1);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .16);
+  transition: background .25s, color .25s, transform .4s var(--spring), box-shadow .25s;
+}
+.word:hover { background: rgba(255, 255, 255, .2); transform: translateY(-3px); }
+.word.opinion { box-shadow: inset 0 -2px 0 rgba(44, 199, 159, .9), inset 0 0 0 1px rgba(255, 255, 255, .16); }
+.word.masked { background: #fff; color: var(--ultra-deep); font-family: var(--mono); font-size: .82em; box-shadow: none; animation: jelly .5s var(--ease); }
+.word:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.play-meter { display: grid; gap: 10px; }
+.pm-row { display: grid; grid-template-columns: 74px 1fr 44px; gap: 12px; align-items: center; font-size: 14px; color: rgba(255, 255, 255, .75); }
+.pm-row i { height: 10px; border-radius: 99px; background: rgba(255, 255, 255, .14); overflow: hidden; }
+.pm-row b { display: block; height: 100%; width: 0; border-radius: inherit; background: rgba(255, 255, 255, .7); transition: width .7s var(--spring); }
+.pm-row[data-k="positive"] b { background: #34E0B3; }
+.pm-row[data-k="negative"] b { background: #FF8A8C; }
+.pm-row em { font-style: normal; text-align: right; font-variant-numeric: tabular-nums; color: #fff; font-weight: 650; }
+.pm-row.top span { color: #fff; font-weight: 650; }
+.play-verdict { margin: 18px 0 0; font-size: 17px; font-weight: 650; min-height: 1.4em; }
+.play-verdict strong { padding: 2px 8px; border-radius: 6px; background: #fff; color: var(--ultra-deep); }
+.play-note { margin: 10px 0 0; font-size: 12.5px; color: rgba(255, 255, 255, .55); }
 .cta .btn-primary { background: #fff; color: var(--ultra-deep); }
 .cta .btn-primary::before { background: var(--ink); }
 :root[data-theme="dark"] .cta .btn-primary::before, :root:not([data-theme="light"]) .cta .btn-primary::before { background: #0E1020; }
@@ -459,6 +495,7 @@ textarea:focus, input[type="text"]:focus { outline: none; background: var(--pape
   .fan { justify-self: center; }
 }
 @media (max-width: 980px) {
+  .cta { grid-template-columns: 1fr; }
   .hero-grid { grid-template-columns: 1fr; }
   .hero-title { font-size: clamp(2.8rem, 10vw, 5.4rem); }
   .demo { justify-self: center; }

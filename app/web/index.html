@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300..800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=9">
+  <link rel="stylesheet" href="style.css?v=10">
   <script>
     (function () {
       var d = document.documentElement; d.classList.add('js');
@@ -156,12 +156,31 @@
       </div>
     </section>
 
-    <!-- 3. call to action -->
+    <!-- 3. call to action with a hide-a-word playground -->
     <section class="wrap">
       <div class="cta">
         <div class="cta-grid" id="ctaGrid" aria-hidden="true"></div>
-        <h2>Hide a word. See what's left.</h2>
-        <a class="btn btn-primary" href="lab.html" data-magnetic><span>Open the lab</span></a>
+        <div class="cta-copy">
+          <h2>Hide a word. See what's left.</h2>
+          <p class="cta-lede">Click any word in the tweet to hide it. Hiding the subject barely moves the mood, but hide the opinion and it falls apart.</p>
+          <a class="btn btn-primary" href="lab.html" data-magnetic><span>Open the lab</span></a>
+        </div>
+
+        <div class="play" aria-label="Hide-a-word playground">
+          <div class="play-head">
+            <span class="avatar" aria-hidden="true"></span>
+            <span class="play-handle">@foodie_ana</span>
+            <button type="button" class="play-reset" id="playReset">Reset</button>
+          </div>
+          <p class="play-tweet" id="playTweet"></p>
+          <div class="play-meter" id="playMeter" aria-live="polite">
+            <div class="pm-row" data-k="positive"><span>positive</span><i><b></b></i><em>0%</em></div>
+            <div class="pm-row" data-k="neutral"><span>neutral</span><i><b></b></i><em>0%</em></div>
+            <div class="pm-row" data-k="negative"><span>negative</span><i><b></b></i><em>0%</em></div>
+          </div>
+          <p class="play-verdict" id="playVerdict"></p>
+          <p class="play-note">Illustration only. The real models run in the lab.</p>
+        </div>
       </div>
     </section>
   </main>
@@ -179,6 +198,6 @@
     <div class="foot-word" aria-hidden="true"><span>Implicit</span><b>MABSA</b></div>
   </footer>
 
-  <script src="script.js?v=7"></script>
+  <script src="script.js?v=10"></script>
 </body>
 </html>
