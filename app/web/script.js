@@ -1,4 +1,4 @@
-/* ImplicitMABSA — web UI (shared by index, method, lab and research pages)
+/* ImplicitMABSA — web UI (shared by index.html and lab.html)
  * The lab calls the local Python server at POST /api/predict (FormData: dataset, tweet, aspect, image).
  * The mock is off: to try the lab without the server, open lab.html?mock and it returns the sample response.
  */
@@ -102,6 +102,9 @@ const curtain = (() => {
     setDelays(0.5, 0.5, 0.55);
     el.classList.add("cover");
     root.classList.remove("arriving");
+    // arriving on index.html#how: jump to the section while the patches still cover the screen
+    const target = location.hash && document.getElementById(location.hash.slice(1));
+    if (target) window.scrollTo({ top: scrollY + target.getBoundingClientRect().top, behavior: "instant" });
     el.style.background = "transparent";
     void el.offsetWidth;
     el.classList.remove("cover");
@@ -125,7 +128,12 @@ const curtain = (() => {
     if (e.persisted) { el.classList.remove("cover"); root.classList.remove("covering", "arriving"); ss.del("imabsa-nav"); }
   });
 
-  const LABELS = { "index.html": "Home", "method.html": "Method", "lab.html": "Lab", "research.html": "Research" };
+  const LABELS = { "index.html": "Home", "lab.html": "Lab" };
+  const scrollToHash = (hash) => {
+    const target = hash && document.getElementById(hash.slice(1));
+    if (target) target.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+    else scrollTo({ top: 0, behavior: reduceMotion ? "auto" : "smooth" });
+  };
   document.addEventListener("click", (e) => {
     const a = e.target.closest("a[href]");
     if (!a || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || a.target === "_blank") return;
@@ -135,8 +143,13 @@ const curtain = (() => {
     if (!LABELS[file]) return;
     if (USE_MOCK && !url.search) url.search = "?mock"; // keep the mock on while browsing between pages
     const here = location.pathname.split("/").pop() || "index.html";
-    if (file === here && url.search === location.search) { e.preventDefault(); scrollTo({ top: 0, behavior: reduceMotion ? "auto" : "smooth" }); return; }
     e.preventDefault();
+    if (file === here) {
+      // same page: just glide to the section (or the top)
+      if (url.hash) history.replaceState(null, "", url.hash); else history.replaceState(null, "", location.pathname + location.search);
+      scrollToHash(url.hash);
+      return;
+    }
     leave(url.href, LABELS[file], e.clientX || innerWidth / 2, e.clientY || innerHeight / 2);
   });
 
@@ -224,7 +237,8 @@ const toggleTheme = (x, y) => setTheme(isDark() ? "light" : "dark", x, y);
   const nav = $("#nav");
   const links = $$("a[data-page]", nav);
   const blobs = $$(".blob", nav);
-  const current = links.find((l) => l.dataset.page === PAGE) || null;
+  let current = links.find((l) => l.dataset.page === PAGE) || null;
+  let hovering = false;
   function moveTo(link) {
     links.forEach((l) => l.classList.toggle("lit", l === link));
     blobs.forEach((b) => {
@@ -234,9 +248,17 @@ const toggleTheme = (x, y) => setTheme(isDark() ? "light" : "dark", x, y);
       b.style.setProperty("--o", 1);
     });
   }
-  links.forEach((l) => l.addEventListener("pointerenter", () => moveTo(l)));
-  nav.addEventListener("pointerleave", () => moveTo(current));
+  links.forEach((l) => l.addEventListener("pointerenter", () => { hovering = true; moveTo(l); }));
+  nav.addEventListener("pointerleave", () => { hovering = false; moveTo(current); });
   if (current) current.setAttribute("aria-current", "page");
+  // on the home page the pill follows the reader into "How it works" and back
+  if (PAGE === "home") {
+    const homeLink = links.find((l) => l.dataset.page === "home"), howLink = links.find((l) => l.dataset.page === "how");
+    new IntersectionObserver((en) => {
+      current = en[0].isIntersecting ? howLink : homeLink;
+      if (!hovering) moveTo(current);
+    }, { rootMargin: "-45% 0px -50% 0px" }).observe($("#how"));
+  }
   const settle = () => moveTo(current);
   settle();
   document.fonts && document.fonts.ready.then(settle);
@@ -369,30 +391,6 @@ function initSeg(seg, onChange) {
   seg.addEventListener("change", (e) => { sync(inputs.indexOf(e.target) === 1 ? "right" : "left"); onChange && onChange(e.target.value); });
   sync();
 }
-/* Tabs with a sliding pill (method models, research tasks) */
-function initTabs(tabs, onSelect, fireInitial = true) {
-  const pill = $(".tab-pill", tabs), btns = $$("button", tabs);
-  const place = (b) => { pill.style.width = `${b.offsetWidth}px`; pill.style.transform = `translateX(${b.offsetLeft}px)`; };
-  const select = (b, fire = true) => {
-    btns.forEach((x) => x.setAttribute("aria-selected", String(x === b)));
-    place(b);
-    if (fire) onSelect(b);
-  };
-  btns.forEach((b) => b.addEventListener("click", () => { select(b); replay(b, "jelly"); }));
-  tabs.addEventListener("keydown", (e) => {
-    const i = btns.findIndex((b) => b.getAttribute("aria-selected") === "true");
-    if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
-      const n = btns[(i + (e.key === "ArrowRight" ? 1 : btns.length - 1)) % btns.length];
-      n.focus(); select(n);
-    }
-  });
-  const cur = () => btns.find((b) => b.getAttribute("aria-selected") === "true") || btns[0];
-  select(cur(), fireInitial);
-  const settle = () => place(cur());
-  window.addEventListener("resize", settle);
-  document.fonts && document.fonts.ready.then(settle);
-}
-
 /* ================================================================== */
 /* HOME                                                                */
 /* ================================================================== */
@@ -487,27 +485,6 @@ if (PAGE === "home") {
     $$(".marquee-row").forEach((r, i) => i === 0 || r.setAttribute("aria-hidden", "true"));
   })();
 
-  (function litText() {
-    const el = $("#litText");
-    const words = el.textContent.trim().split(/\s+/);
-    el.innerHTML = words.map((w) => `<span class="w">${escapeHtml(w)}</span>`).join(" ");
-    const spans = $$(".w", el);
-    if (reduceMotion) { spans.forEach((s) => s.classList.add("on")); return; }
-    const update = () => {
-      const r = el.getBoundingClientRect(), vh = innerHeight;
-      const p = clamp((vh * 0.85 - r.top) / (r.height + vh * 0.35), 0, 1);
-      const n = Math.round(p * spans.length);
-      spans.forEach((s, i) => s.classList.toggle("on", i < n));
-    };
-    window.addEventListener("scroll", update, { passive: true });
-    update();
-  })();
-}
-
-/* ================================================================== */
-/* METHOD                                                              */
-/* ================================================================== */
-if (PAGE === "method") {
   (function story() {
     const stage = $("#stage");
     const tokens = $("#tokens");
@@ -545,92 +522,6 @@ if (PAGE === "method") {
     };
     window.addEventListener("scroll", onScroll, { passive: true });
     onScroll();
-  })();
-
-  (function models() {
-    const M = {
-      image: { name: "Image-only", label: "MLP", sub: "class token + mean patch", t: false, i: true, s15: 42.0, s17: 42.4,
-        desc: "Sees only the photo. A small network on the ViT's class token and mean patch. It shows the image does carry some signal on its own: far above the majority baseline of 24.6." },
-      text: { name: "Text-only", label: "Linear head", sub: "first token only", t: true, i: false, s15: 72.8, s17: 69.4,
-        desc: "Sees only the words. A linear layer on the first token of the fine-tuned Twitter RoBERTa. This is the bar every fusion model has to beat." },
-      concat: { name: "Concat", label: "Concatenate", sub: "text + image vectors", t: true, i: true, s15: 72.9, s17: 70.6,
-        desc: "Projects the image's class token to the text size and joins it to the text vector. Simple and cheap, and as good as anything else here." },
-      cross: { name: "Cross-attn", label: "Gated cross-attention", sub: "8 heads over 197 tokens", t: true, i: true, s15: 72.5, s17: 70.8,
-        desc: "Every text token attends over all 197 image tokens, and a learned gate decides how much of the image to let in. It costs about 9% more training time." },
-    };
-    const set = (id, on) => $(id).classList.toggle("off", !on);
-    initTabs($("#modelTabs"), (b) => {
-      const m = M[b.dataset.model];
-      set("#n-tweet", m.t); set("#n-rob", m.t); set("#n-img", m.i); set("#n-vit", m.i);
-      [["#f-t1", m.t], ["#f-t2", m.t], ["#f-i1", m.i], ["#f-i2", m.i], ["#f-o", true]].forEach(([id, on]) => {
-        $(id).classList.toggle("live", on); $(id).classList.toggle("off", !on);
-      });
-      $("#fuseLabel").textContent = m.label; $("#fuseSub").textContent = m.sub;
-      $("#mcName").textContent = m.name; $("#mcDesc").textContent = m.desc;
-      countUp($("#mcScore"), m.s15, (v) => v.toFixed(1), 700);
-      $("#mcScoreSub").textContent = `macro-F1 on hidden-aspect sentiment, Twitter-2015 (${m.s17.toFixed(1)} on Twitter-2017)`;
-    });
-  })();
-}
-
-/* ================================================================== */
-/* RESEARCH                                                            */
-/* ================================================================== */
-if (PAGE === "research") {
-  (function chart() {
-    // test macro-F1, mean and std over three seeds, from the paper
-    const D = {
-      sent_masked: {
-        t15: [["Majority", 24.61, 0], ["Image-only", 42.01, 1.38], ["Text-only", 72.76, 0.60], ["Concat", 72.88, 0.17], ["Cross-attn", 72.50, 0.45]],
-        t17: [["Majority", 21.14, 0], ["Image-only", 42.43, 0.22], ["Text-only", 69.37, 2.03], ["Concat", 70.64, 0.69], ["Cross-attn", 70.77, 0.27]],
-        title: "With the aspect hidden, every model that reads the text lands in the same place",
-        note: { t15: "Text-only, concat and cross-attention are within 0.38 points of each other. No gain from the image is statistically significant (every McNemar p ≥ 0.16).",
-                t17: "Fusion scores 1.3 to 1.4 points higher, but text-only itself varies by 2.03 points across seeds, so the gain is within noise." } },
-      sent_explicit: {
-        t15: [["Majority", 24.61, 0], ["Image-only", 42.01, 1.38], ["Text-only", 73.20, 1.88], ["Concat", 71.49, 1.26], ["Cross-attn", 72.39, 0.68]],
-        t17: [["Majority", 21.14, 0], ["Image-only", 42.43, 0.22], ["Text-only", 71.19, 1.14], ["Concat", 71.01, 1.67], ["Cross-attn", 70.33, 1.04]],
-        title: "Showing the aspect barely changes the picture",
-        note: { t15: "Hiding the aspect cost text-only just 0.44 points here. The only significant difference in the whole study is a loss: concat, −2.03 points (p = 0.021). Image-only has no text, so it is the same run in both settings.",
-                t17: "Hiding the aspect cost text-only 1.81 points on Twitter-2017. Fusion still does not beat it. Image-only has no text, so it is the same run in both settings." } },
-      type_masked: {
-        t15: [["Majority", 14.15, 0], ["Image-only", 37.11, 0.61], ["Text-only", 65.79, 0.19], ["Concat", 66.74, 1.09], ["Cross-attn", 65.29, 0.93]],
-        t17: [["Majority", 16.01, 0], ["Image-only", 37.03, 0.71], ["Text-only", 76.48, 1.17], ["Concat", 76.17, 0.37], ["Cross-attn", 75.70, 0.50]],
-        title: "The surrounding words give away what kind of thing was hidden",
-        note: { t15: "Four entity types: person, location, organisation, other. Concat adds 0.94 points, less than its own standard deviation. Image-only does best on people.",
-                t17: "Text-only reaches 76.5 against a majority baseline of 16.0. Both fusion models land slightly below it." } },
-    };
-    const MAX = 90;
-    let task = "sent_masked", ds = "t15";
-    const rows = $("#crows");
-    rows.innerHTML = D.sent_masked.t15.map(([n]) => `
-      <div class="crow">
-        <span class="crow-name${n === "Majority" ? " muted" : ""}">${n === "Majority" ? "Majority baseline" : n}</span>
-        <div class="crow-track"><div class="crow-bar"></div><div class="crow-err"></div></div>
-        <span class="crow-val"><span class="v">0</span><small></small></span>
-      </div>`).join("");
-    const rowEls = $$(".crow", rows);
-    function draw() {
-      const data = D[task][ds];
-      const best = Math.max(...data.filter(([n]) => n !== "Majority").map(([, v]) => v));
-      data.forEach(([n, v, sd], i) => {
-        const el = rowEls[i];
-        const bar = $(".crow-bar", el), err = $(".crow-err", el);
-        bar.style.setProperty("--w", `${(v / MAX) * 100}%`);
-        bar.classList.toggle("best", v === best);
-        bar.style.setProperty("--c", n === "Majority" ? "var(--line)" : n === "Image-only" ? "color-mix(in srgb, var(--ultra) 35%, var(--ink-3))" : "var(--ink-3)");
-        err.style.setProperty("--l", `${((v - sd) / MAX) * 100}%`);
-        err.style.setProperty("--ew", `${((2 * sd) / MAX) * 100}%`);
-        err.style.opacity = sd ? "" : "0";
-        countUp($(".v", el), v, (x) => x.toFixed(2), 900);
-        $("small", el).textContent = sd ? `± ${sd.toFixed(2)}` : "";
-      });
-      $("#chartTitle").textContent = D[task].title;
-      $("#chartNote").textContent = D[task].note[ds];
-    }
-    initTabs($("#taskTabs"), (b) => { task = b.dataset.task; draw(); }, false);
-    initSeg($("#dsSeg"), (v) => { ds = v; draw(); });
-    // draw from zero when the chart scrolls into view
-    new IntersectionObserver((en, obs) => { if (en[0].isIntersecting) { draw(); obs.disconnect(); } }, { threshold: 0.3 }).observe(rows);
   })();
 }
 

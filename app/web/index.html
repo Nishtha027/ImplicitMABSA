@@ -34,9 +34,8 @@
     <nav class="bar-nav" id="nav" aria-label="Pages">
       <div class="goo" aria-hidden="true"><i class="blob blob-a"></i><i class="blob blob-b"></i></div>
       <a href="index.html" data-page="home">Home</a>
-      <a href="method.html" data-page="method">Method</a>
+      <a href="index.html#how" data-page="how">How it works</a>
       <a href="lab.html" data-page="lab">Lab</a>
-      <a href="research.html" data-page="research">Research</a>
     </nav>
     <div class="bar-end">
       <a class="bar-gh" href="https://github.com/Nishtha027/ImplicitMABSA" target="_blank" rel="noopener">GitHub</a>
@@ -49,14 +48,14 @@
   </header>
   <div class="mobile-menu" id="mobileMenu" hidden>
     <a href="index.html" data-page="home">Home</a>
-    <a href="method.html" data-page="method">Method</a>
+    <a href="index.html#how" data-page="how">How it works</a>
     <a href="lab.html" data-page="lab">Lab</a>
-    <a href="research.html" data-page="research">Research</a>
     <a href="https://github.com/Nishtha027/ImplicitMABSA" target="_blank" rel="noopener">GitHub</a>
     <button type="button" class="mm-theme" id="mmTheme">Switch theme</button>
   </div>
 
   <main>
+    <!-- 1. hero: the whole idea in one look -->
     <section class="hero wrap">
       <div class="aurora" aria-hidden="true"><i></i><i></i></div>
       <div class="hero-grid">
@@ -67,12 +66,12 @@
             <span class="ln"><span>doesn't say.</span></span>
           </h1>
           <p class="hero-lede rise">
-            Give it a tweet and its photo. ImplicitMABSA hides the subject, then infers how the author feels about it
+            Give it a tweet and its photo. ImplicitMABSA hides the subject, then works out how the author feels about it
             and what kind of thing it is, from the words left behind and 196 patches of the image.
           </p>
           <div class="hero-actions rise">
-            <a class="btn btn-primary" href="lab.html" data-magnetic><span>Open the lab</span></a>
-            <a class="btn btn-quiet" href="method.html" data-magnetic><span>See how it works</span></a>
+            <a class="btn btn-primary" href="lab.html" data-magnetic><span>Try it yourself</span></a>
+            <a class="btn btn-quiet" href="#how" data-magnetic><span>How it works</span></a>
           </div>
         </div>
 
@@ -91,75 +90,99 @@
               <div class="demo-type">hidden aspect is an <strong>organisation</strong></div>
             </div>
           </div>
-          <figcaption>Illustrative example. Try your own in the lab.</figcaption>
+          <figcaption>Illustrative example</figcaption>
         </figure>
       </div>
       <div class="hero-foot">
         <span class="scroll-cue"><i aria-hidden="true"></i>Scroll</span>
-        <span>A research project at Bennett University</span>
       </div>
     </section>
 
-    <!-- masked tweets drifting past -->
+    <!-- 2. masked tweets drifting past -->
     <section class="marquee" aria-label="Examples of tweets with the aspect hidden">
       <div class="marquee-row" id="mq1"></div>
       <div class="marquee-row rev" id="mq2"></div>
     </section>
 
-    <!-- statement that lights up as you scroll -->
-    <section class="statement wrap">
-      <p class="lit-text" id="litText">We hid the subject of every tweet. The model still read the mood from the words left behind, and the photo said less than we expected.</p>
+    <!-- 3. how it works: sticky panel builds the prediction as you scroll -->
+    <section class="how-sec wrap" id="how" aria-labelledby="howTitle">
+      <div class="how-head">
+        <span class="kicker">How it works</span>
+        <h2 class="section-title reveal" id="howTitle"><span class="ln"><span>Four steps from</span></span><span class="ln"><span>tweet to answer</span></span></h2>
+      </div>
+
+      <div class="story">
+        <div class="stage" id="stage" data-step="0" aria-hidden="true">
+          <div class="stage-rail"><span></span><span></span><span></span><span></span></div>
+          <p class="stage-tweet">Dinner at <span class="aspect-span st-aspect">Joe's Diner</span><span class="tok-mask st-mask">&lt;mask&gt;</span> tonight. Absolutely delicious!</p>
+          <div class="stage-body">
+            <div class="st-block" data-b="2"><span class="st-label">Words, one state per token</span><div class="tokens" id="tokens"></div></div>
+            <div class="st-block st-photo" data-b="3"><span class="st-label">Photo, 196 patches</span><div class="mini-photo"><div class="patches" id="storyPatches"></div></div></div>
+          </div>
+          <div class="stage-out">
+            <div class="st-block" data-b="4"><span class="st-label">Sentiment</span>
+              <div class="st-bars">
+                <div><span>positive</span><i><b style="--v:86%;--c:var(--pos)"></b></i></div>
+                <div><span>neutral</span><i><b style="--v:11%;--c:var(--neu)"></b></i></div>
+                <div><span>negative</span><i><b style="--v:3%;--c:var(--neg)"></b></i></div>
+              </div>
+            </div>
+            <div class="st-block" data-b="4"><span class="st-label">Aspect type</span>
+              <div class="st-bars">
+                <div><span>organisation</span><i><b style="--v:72%"></b></i></div>
+                <div><span>person</span><i><b style="--v:15%;--c:var(--neu)"></b></i></div>
+                <div><span>location</span><i><b style="--v:9%;--c:var(--neu)"></b></i></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="story-steps">
+          <article class="story-step" data-step="1">
+            <span class="num">01</span>
+            <h3>Hide the subject</h3>
+            <p>The tweet is about Joe's Diner. That name is swapped for a mask token, so the model has to work it out from everything else.</p>
+          </article>
+          <article class="story-step" data-step="2">
+            <span class="num">02</span>
+            <h3>Read the words</h3>
+            <p>A Twitter-trained language model reads what's left. "Absolutely delicious" still carries the mood, even with the subject gone.</p>
+          </article>
+          <article class="story-step" data-step="3">
+            <span class="num">03</span>
+            <h3>Read the photo</h3>
+            <p>A Vision Transformer cuts the image into 14 × 14 = 196 patches and reads each one.</p>
+          </article>
+          <article class="story-step" data-step="4">
+            <span class="num">04</span>
+            <h3>Give the answer</h3>
+            <p>Words and photo are combined to answer two questions: how does the author feel about the hidden subject, and what kind of thing is it?</p>
+          </article>
+        </div>
+      </div>
     </section>
 
-    <!-- chapters: the other pages -->
-    <section class="wrap" aria-labelledby="chTitle">
-      <span class="kicker">Explore the project</span>
-      <h2 class="section-title reveal" id="chTitle"><span class="ln"><span>Three ways in</span></span></h2>
-      <ol class="chapters">
-        <li>
-          <a class="chapter-link" href="method.html">
-            <span class="ch-num">01</span>
-            <span class="ch-title">Method</span>
-            <span class="ch-desc">How a masked tweet and 196 image patches become a prediction, step by step.</span>
-            <span class="ch-go" aria-hidden="true"><svg class="arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-          </a>
-        </li>
-        <li>
-          <a class="chapter-link" href="lab.html">
-            <span class="ch-num">02</span>
-            <span class="ch-title">Lab</span>
-            <span class="ch-desc">Run the trained models on your own tweet and photo, or start from an example.</span>
-            <span class="ch-go" aria-hidden="true"><svg class="arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-          </a>
-        </li>
-        <li>
-          <a class="chapter-link" href="research.html">
-            <span class="ch-num">03</span>
-            <span class="ch-title">Research</span>
-            <span class="ch-desc">66 training runs, four models, two benchmarks, and what the numbers actually say.</span>
-            <span class="ch-go" aria-hidden="true"><svg class="arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-          </a>
-        </li>
-      </ol>
-    </section>
-
+    <!-- 4. call to action -->
     <section class="wrap">
       <div class="cta">
         <div class="cta-grid" id="ctaGrid" aria-hidden="true"></div>
         <h2>Hide a word. See what's left.</h2>
-        <a class="btn btn-primary" href="lab.html" data-magnetic><span>Try it on your tweet</span></a>
+        <a class="btn btn-primary" href="lab.html" data-magnetic><span>Open the lab</span></a>
       </div>
     </section>
   </main>
 
   <footer class="foot">
     <div class="foot-top wrap">
-      <p class="foot-lede">Multimodal implicit aspect-based sentiment analysis, built with text and images.</p>
-      <div><h4>Pages</h4><ul><li><a href="index.html">Home</a></li><li><a href="method.html">Method</a></li><li><a href="lab.html">Lab</a></li><li><a href="research.html">Research</a></li></ul></div>
-      <div><h4>Team</h4><ul><li>Nishtha Jain</li><li>Aman Swamy</li><li>Tamanna Arora</li><li><a href="https://github.com/Nishtha027/ImplicitMABSA" target="_blank" rel="noopener">GitHub</a></li></ul></div>
+      <p class="foot-lede">Read what a tweet doesn't say.</p>
+      <ul class="foot-links">
+        <li><a href="index.html">Home</a></li>
+        <li><a href="index.html#how">How it works</a></li>
+        <li><a href="lab.html">Lab</a></li>
+        <li><a href="https://github.com/Nishtha027/ImplicitMABSA" target="_blank" rel="noopener">GitHub</a></li>
+      </ul>
     </div>
     <span class="foot-word" aria-hidden="true">Implicit<b>MABSA</b></span>
-    <div class="foot-base wrap"><span>Bennett University, Greater Noida</span><span>Twitter-2015 and Twitter-2017 benchmarks</span></div>
   </footer>
 
   <script src="script.js"></script>
