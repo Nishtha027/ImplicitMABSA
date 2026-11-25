@@ -42,6 +42,20 @@ upload an image. If the aspect appears in the tweet it is masked before predicti
 trained on); otherwise the tweet is used as is. Runs on CPU. Re-training a seed on GPU reproduces the reported run
 closely but not bit-for-bit; each exported model reports its own test accuracy.
 
+### Web app (local)
+
+`app/web/` is an HTML/CSS/JS front end (Home + Lab pages); `app/server.py` serves it and answers
+`POST /api/predict` (form fields `dataset`, `tweet`, `aspect`, `image`) with the same exported models and the same
+masking as the tester above. `GET /api/info` lists the loaded models and their test metrics.
+
+```
+pip install -r app/requirements.txt
+python app/server.py --models-dir models
+```
+
+Open http://127.0.0.1:8000 and go to **Lab**. On Windows, `app/START_WEBSITE.bat` does the same (it looks for
+`models/` next to it, then one folder up). `lab.html?mock` shows the UI with a fixed sample answer, without models.
+
 Sentiment labels in the source files: 0 = negative, 1 = neutral, 2 = positive (verified against the 4-line copies of
 the same data, which use −1/0/1, on all 11,314 matched rows).
 
