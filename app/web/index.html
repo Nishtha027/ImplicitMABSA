@@ -8,14 +8,14 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300..800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=9">
   <script>
     (function () {
       var d = document.documentElement; d.classList.add('js');
       try { if (localStorage.getItem('imabsa-theme') === 'light') d.dataset.theme = 'light'; } catch (e) {}
       try {
         if (!matchMedia('(prefers-reduced-motion: reduce)').matches &&
-            (sessionStorage.getItem('imabsa-nav') || !sessionStorage.getItem('imabsa-seen'))) d.classList.add('arriving');
+            (sessionStorage.getItem('imabsa-nav') || !sessionStorage.getItem('imabsa-seen'))) { d.classList.add('arriving'); setTimeout(function () { d.classList.remove('arriving'); }, 4000); }
       } catch (e) {}
     })();
   </script>
@@ -179,6 +179,6 @@
     <div class="foot-word" aria-hidden="true"><span>Implicit</span><b>MABSA</b></div>
   </footer>
 
-  <script src="script.js"></script>
+  <script src="script.js?v=7"></script>
 </body>
 </html>

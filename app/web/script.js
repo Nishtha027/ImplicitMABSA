@@ -155,6 +155,8 @@ const curtain = (() => {
 
   return { reveal, whenRevealed };
 })();
+// lift the curtain right away, so nothing later on the page can ever leave it stuck
+curtain.reveal();
 
 /* ------------------------------------------------------------------ */
 /* Theme: pull cord lamp + eclipse reveal                              */
@@ -752,5 +754,3 @@ if (PAGE === "lab") {
   $("#retry").addEventListener("click", async () => { if (!lastPayload || swipeBusy) return; await launch(); submit(lastPayload.fd, lastPayload.aspect); });
 }
 
-/* Start: lift the curtain once everything above is wired up */
-curtain.reveal();
