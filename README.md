@@ -56,6 +56,14 @@ python app/server.py --models-dir models
 Open http://127.0.0.1:8000 and go to **Lab**. On Windows, `app/START_WEBSITE.bat` does the same (it looks for
 `models/` next to it, then one folder up). `lab.html?mock` shows the UI with a fixed sample answer, without models.
 
+![Home page](docs/screenshots/home.png)
+*Home page. The tweet card on the right is an illustrative animation, not a model output.*
+
+![Lab page with a real prediction](docs/screenshots/lab-result.png)
+*Lab page with a real prediction from the exported Twitter-2015 models (concat, seed 42). The aspect "Joe's Diner" is
+in the tweet, so it is replaced by `<mask>`; the model predicts positive sentiment and the aspect type location. The
+cards at the bottom show each model's own test accuracy and macro-F1.*
+
 Sentiment labels in the source files: 0 = negative, 1 = neutral, 2 = positive (verified against the 4-line copies of
 the same data, which use −1/0/1, on all 11,314 matched rows).
 
