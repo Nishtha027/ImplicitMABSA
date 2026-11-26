@@ -4,7 +4,7 @@ Code for a study of whether combining tweet text with its image helps (1) predic
 that is **not stated** in the text, and (2) identify **what kind of aspect** it is, on the Twitter-2015 and
 Twitter-2017 multimodal ABSA benchmarks.
 
-## Pipeline
+## Pipelinessssss
 
 | Step | File | What it does |
 |---|---|---|
